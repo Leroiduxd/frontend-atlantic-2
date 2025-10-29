@@ -83,7 +83,7 @@ const Sidebar = () => {
                     return (
                       <button
                         onClick={openAccountModal}
-                        className="p-2 rounded-xl bg-trading-green text-white hover:bg-trading-green/80 transition-colors duration-200"
+                        className="p-2 rounded-xl bg-sidebar-navy text-white hover:bg-sidebar-navy/80 transition-colors duration-200"
                         title="Connected"
                       >
                         <Wallet className="w-6 h-6" />
