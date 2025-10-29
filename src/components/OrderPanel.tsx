@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -6,10 +6,16 @@ import { useVault } from "@/hooks/useVault";
 import { useTrading } from "@/hooks/useTrading";
 import { useToast } from "@/hooks/use-toast";
 import { DepositDialog } from "./DepositDialog";
+import { Asset } from "./ChartControls";
 
 type OrderType = "limit" | "market";
 
-const OrderPanel = () => {
+interface OrderPanelProps {
+  selectedAsset: Asset;
+  currentPrice: number;
+}
+
+const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const [orderType, setOrderType] = useState<OrderType>("limit");
   const [tpEnabled, setTpEnabled] = useState(false);
   const [slEnabled, setSlEnabled] = useState(false);
@@ -23,6 +29,41 @@ const OrderPanel = () => {
   const { balance, available, locked, refetchAll } = useVault();
   const { openPosition } = useTrading();
   const { toast } = useToast();
+
+  // Update limit price when current price changes or asset changes
+  useEffect(() => {
+    if (currentPrice > 0 && !limitPrice) {
+      setLimitPrice(currentPrice.toString());
+    }
+  }, [currentPrice, selectedAsset.id]);
+
+  // Calculate trade values
+  const calculations = useMemo(() => {
+    const price = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
+    const notional = (lots * 0.01) * price; // lots * BTC per lot * price
+    const margin = notional / leverage;
+    
+    // Liquidation price calculation
+    // For long: liqPrice = entryPrice * (1 - 1/leverage)
+    // For short: liqPrice = entryPrice * (1 + 1/leverage)
+    const liqPriceLong = price * (1 - 0.99 / leverage);
+    const liqPriceShort = price * (1 + 0.99 / leverage);
+
+    return {
+      value: notional,
+      cost: margin,
+      liqPriceLong,
+      liqPriceShort,
+    };
+  }, [lots, leverage, limitPrice, currentPrice, orderType]);
+
+  const formatPrice = (value: number) => {
+    if (value === 0) return "0.00";
+    const integerPart = Math.floor(Math.abs(value)).toString().length;
+    if (integerPart === 1) return value.toFixed(5);
+    if (integerPart === 2) return value.toFixed(3);
+    return value.toFixed(2);
+  };
 
   const handleTrade = async (longSide: boolean) => {
     setLoading(true);
@@ -222,24 +263,26 @@ const OrderPanel = () => {
         <div className="text-sm space-y-1.5 pt-3 border-t border-border">
           <div className="flex justify-between text-light-text">
             <span>Value</span>
-            <span className="text-foreground">- / -</span>
+            <span className="text-foreground">${formatPrice(calculations.value)}</span>
           </div>
           <div className="flex justify-between text-light-text">
-            <span>Cost</span>
-            <span className="text-foreground">- / -</span>
+            <span>Cost (Margin)</span>
+            <span className="text-foreground">${formatPrice(calculations.cost)}</span>
           </div>
           <div className="flex justify-between text-light-text">
-            <span>Est. Liquidation Price</span>
-            <span className="text-foreground">-</span>
+            <span>Est. Liq. Price (Long/Short)</span>
+            <span className="text-foreground text-xs">
+              ${formatPrice(calculations.liqPriceLong)} / ${formatPrice(calculations.liqPriceShort)}
+            </span>
           </div>
         </div>
 
         {/* 8. Trading Account Balance */}
-        <div className="flex justify-between items-center pt-2">
-          <span className="text-sm font-semibold text-foreground">Trading Account</span>
-          <span className="text-sm font-bold text-primary">${balance}</span>
-        </div>
-        <div className="flex justify-end pt-0">
+        <div className="space-y-2 pt-3 border-t border-border">
+          <div className="flex justify-between items-center">
+            <span className="text-sm font-semibold text-foreground">Trading Account</span>
+            <span className="text-sm font-bold text-primary">${balance}</span>
+          </div>
           <DepositDialog />
         </div>
 
