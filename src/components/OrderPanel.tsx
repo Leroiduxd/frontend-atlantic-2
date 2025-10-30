@@ -7,6 +7,7 @@ import { useTrading } from "@/hooks/useTrading";
 import { useToast } from "@/hooks/use-toast";
 import { DepositDialog } from "./DepositDialog";
 import { Asset } from "./ChartControls";
+import { useAssetConfig } from "@/hooks/useAssetConfig";
 
 type OrderType = "limit" | "market";
 
@@ -29,6 +30,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const { balance, available, locked, refetchAll } = useVault();
   const { openPosition } = useTrading();
   const { toast } = useToast();
+  const { getConfigById, convertDisplayToLots, convertLotsToDisplay } = useAssetConfig();
 
   // Update limit price when current price changes or asset changes
   useEffect(() => {
@@ -40,7 +42,10 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   // Calculate trade values
   const calculations = useMemo(() => {
     const price = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
-    const notional = (lots * 0.01) * price; // lots * BTC per lot * price
+    const config = getConfigById(selectedAsset.id);
+    const actualLots = convertDisplayToLots(lots, selectedAsset.id);
+    const lotSize = config ? (config.lot_num / config.lot_den) : 0.01;
+    const notional = (actualLots * lotSize) * price;
     const margin = notional / leverage;
     
     // Liquidation price calculation
@@ -55,7 +60,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
       liqPriceLong,
       liqPriceShort,
     };
-  }, [lots, leverage, limitPrice, currentPrice, orderType]);
+  }, [lots, leverage, limitPrice, currentPrice, orderType, selectedAsset.id, getConfigById, convertDisplayToLots]);
 
   const formatPrice = (value: number) => {
     if (value === 0) return "0.00";
@@ -72,11 +77,12 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
       const priceX6 = isLimit && limitPrice ? Math.round(Number(limitPrice) * 1000000) : 0;
       const slX6 = slEnabled && slPrice ? Math.round(Number(slPrice) * 1000000) : 0;
       const tpX6 = tpEnabled && tpPrice ? Math.round(Number(tpPrice) * 1000000) : 0;
+      const actualLots = convertDisplayToLots(lots, selectedAsset.id);
 
       await openPosition({
         longSide,
         leverageX: leverage,
-        lots,
+        lots: actualLots,
         isLimit,
         priceX6,
         slX6,
@@ -165,14 +171,19 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
 
         {/* 3. Amount Input (Lots) */}
         <div>
-          <span className="text-light-text text-xs block mb-1">Lots (1 lot = 0.01 BTC)</span>
+          <span className="text-light-text text-xs block mb-1">
+            Lots (1 lot = {(() => {
+              const config = getConfigById(selectedAsset.id);
+              return config ? (config.lot_num / config.lot_den).toFixed(config.lot_den >= 100 ? 2 : config.lot_den >= 10 ? 1 : 0) : '0.01';
+            })()} {selectedAsset.symbol.split('/')[0] || 'BTC'})
+          </span>
           <Input
             type="number"
             value={lots}
-            onChange={(e) => setLots(Math.max(1, Number(e.target.value)))}
+            onChange={(e) => setLots(Math.max(0.01, Number(e.target.value)))}
             className="w-full text-lg font-medium"
-            min="1"
-            step="1"
+            min="0.01"
+            step="0.01"
           />
         </div>
 
@@ -260,7 +271,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
         </div>
 
         {/* 7. Account Details (First Block) */}
-        <div className="text-sm space-y-1.5 pt-3 border-t border-border">
+        <div className="text-xs space-y-1.5 pt-3 border-t border-border">
           <div className="flex justify-between text-light-text">
             <span>Value</span>
             <span className="text-foreground">${formatPrice(calculations.value)}</span>
@@ -271,7 +282,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
           </div>
           <div className="flex justify-between text-light-text">
             <span>Est. Liq. Price (Long/Short)</span>
-            <span className="text-foreground text-xs">
+            <span className="text-foreground text-[10px]">
               ${formatPrice(calculations.liqPriceLong)} / ${formatPrice(calculations.liqPriceShort)}
             </span>
           </div>
@@ -287,7 +298,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
         </div>
 
         {/* 9. Account Details (Second Block) */}
-        <div className="text-sm space-y-1.5 pt-2">
+        <div className="text-xs space-y-1.5 pt-2">
           <div className="flex justify-between text-light-text">
             <span>Balance (Total)</span>
             <span className="text-foreground">${balance}</span>

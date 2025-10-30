@@ -72,16 +72,16 @@ export const ChartControls = ({
             <ChevronDown className="h-4 w-4" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-96 p-0 bg-background" align="start">
-          <Tabs defaultValue="crypto" className="w-full">
-            <TabsList className="w-full grid grid-cols-5 rounded-none border-b">
+        <PopoverContent className="w-[600px] h-[500px] p-0 bg-background z-50" align="center" side="top">
+          <Tabs defaultValue="crypto" className="w-full h-full flex flex-col">
+            <TabsList className="w-full grid grid-cols-5 rounded-none border-b flex-shrink-0">
               <TabsTrigger value="crypto" className="text-xs">Crypto</TabsTrigger>
               <TabsTrigger value="forex" className="text-xs">Forex</TabsTrigger>
               <TabsTrigger value="commodities" className="text-xs">Commodities</TabsTrigger>
               <TabsTrigger value="stocks" className="text-xs">Stocks</TabsTrigger>
               <TabsTrigger value="indices" className="text-xs">Indices</TabsTrigger>
             </TabsList>
-            <ScrollArea className="h-80">
+            <ScrollArea className="flex-1">
               <TabsContent value="crypto" className="m-0 p-2">
                 <div className="space-y-1">
                   {categories.crypto.length > 0 ? (
@@ -98,7 +98,7 @@ export const ChartControls = ({
                         </div>
                         <div className="flex flex-col items-end">
                           <span className="text-sm">{formatPrice(parseFloat(asset.currentPrice || '0'))}</span>
-                          <span className={`text-xs ${parseFloat(asset.change24h || '0') >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          <span className={`text-xs font-semibold ${parseFloat(asset.change24h || '0') >= 0 ? 'text-trading-blue' : 'text-trading-red'}`}>
                             {parseFloat(asset.change24h || '0') >= 0 ? '+' : ''}{parseFloat(asset.change24h || '0').toFixed(2)}%
                           </span>
                         </div>
@@ -125,7 +125,7 @@ export const ChartControls = ({
                         </div>
                         <div className="flex flex-col items-end">
                           <span className="text-sm">{formatPrice(parseFloat(asset.currentPrice || '0'))}</span>
-                          <span className={`text-xs ${parseFloat(asset.change24h || '0') >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          <span className={`text-xs font-semibold ${parseFloat(asset.change24h || '0') >= 0 ? 'text-trading-blue' : 'text-trading-red'}`}>
                             {parseFloat(asset.change24h || '0') >= 0 ? '+' : ''}{parseFloat(asset.change24h || '0').toFixed(2)}%
                           </span>
                         </div>
@@ -152,7 +152,7 @@ export const ChartControls = ({
                         </div>
                         <div className="flex flex-col items-end">
                           <span className="text-sm">{formatPrice(parseFloat(asset.currentPrice || '0'))}</span>
-                          <span className={`text-xs ${parseFloat(asset.change24h || '0') >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          <span className={`text-xs font-semibold ${parseFloat(asset.change24h || '0') >= 0 ? 'text-trading-blue' : 'text-trading-red'}`}>
                             {parseFloat(asset.change24h || '0') >= 0 ? '+' : ''}{parseFloat(asset.change24h || '0').toFixed(2)}%
                           </span>
                         </div>
@@ -179,7 +179,7 @@ export const ChartControls = ({
                         </div>
                         <div className="flex flex-col items-end">
                           <span className="text-sm">{formatPrice(parseFloat(asset.currentPrice || '0'))}</span>
-                          <span className={`text-xs ${parseFloat(asset.change24h || '0') >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          <span className={`text-xs font-semibold ${parseFloat(asset.change24h || '0') >= 0 ? 'text-trading-blue' : 'text-trading-red'}`}>
                             {parseFloat(asset.change24h || '0') >= 0 ? '+' : ''}{parseFloat(asset.change24h || '0').toFixed(2)}%
                           </span>
                         </div>
@@ -206,7 +206,7 @@ export const ChartControls = ({
                         </div>
                         <div className="flex flex-col items-end">
                           <span className="text-sm">{formatPrice(parseFloat(asset.currentPrice || '0'))}</span>
-                          <span className={`text-xs ${parseFloat(asset.change24h || '0') >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                          <span className={`text-xs font-semibold ${parseFloat(asset.change24h || '0') >= 0 ? 'text-trading-blue' : 'text-trading-red'}`}>
                             {parseFloat(asset.change24h || '0') >= 0 ? '+' : ''}{parseFloat(asset.change24h || '0').toFixed(2)}%
                           </span>
                         </div>
@@ -226,13 +226,12 @@ export const ChartControls = ({
       <div className="flex items-center gap-3">
         <span className="font-semibold text-base">{formatPrice(currentPrice)}</span>
         <span
-          className={`text-sm font-medium ${
-            isPositive ? "text-green-500" : "text-red-500"
+          className={`text-sm font-semibold ${
+            isPositive ? "text-trading-blue" : "text-trading-red"
           }`}
         >
           {isPositive ? "+" : ""}
-          {formatPrice(priceChange)} ({isPositive ? "+" : ""}
-          {priceChangePercent.toFixed(2)}%)
+          {parseFloat(selectedAsset.change24h || '0').toFixed(2)}%
         </span>
       </div>
 

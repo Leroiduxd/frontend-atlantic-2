@@ -102,7 +102,7 @@ const PositionsSection = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`py-3 px-4 rounded-none text-sm font-semibold transition duration-200 border-b-2 ${
+              className={`py-3 px-4 rounded-none text-xs font-semibold transition duration-200 border-b-2 ${
                 activeTab === tab.id
                   ? "bg-active-tab text-foreground border-foreground"
                   : "text-muted-foreground hover:bg-hover-bg border-transparent"
