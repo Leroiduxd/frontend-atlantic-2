@@ -1,11 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { 
   createChart, 
   ColorType, 
   IChartApi,
-  CandlestickData,
-  Time
+  CandlestickSeries, 
+  Time,
+  CandlestickData
 } from 'lightweight-charts';
+
+// ... (Interfaces ChartData, Position, LightweightChartProps inchangées) ...
 
 interface ChartData {
   time: string;
@@ -35,6 +38,15 @@ export const LightweightChart = ({ data, positions = [] }: LightweightChartProps
   const seriesRef = useRef<any>(null);
   const priceLinesRef = useRef<any[]>([]);
 
+  const colors = useMemo(() => ({
+    bg: '#f3f4f6',
+    grid: 'rgba(0, 0, 0, 0.15)',
+    border: 'rgba(0, 0, 0, 0.25)',
+    text: '#757575',
+    up: '#3b82f6',
+    down: '#ef4444',
+  }), []);
+
   const formatPrice = (value: number) => {
     if (value === 0) return "0.00";
     const integerPart = Math.floor(Math.abs(value)).toString().length;
@@ -43,30 +55,34 @@ export const LightweightChart = ({ data, positions = [] }: LightweightChartProps
     return value.toFixed(2);
   };
 
+  // Initialisation du graphique (inchangée)
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
     try {
-      const gridColor = 'rgba(0, 0, 0, 0.15)';
-      const borderColor = 'rgba(0, 0, 0, 0.25)';
-      const textColor = '#757575';
-
+      chartRef.current?.remove();
+      chartRef.current = null;
+    } catch (e) {
+      console.warn('Error cleaning up previous chart:', e);
+    }
+    
+    try {
       const chart = createChart(chartContainerRef.current, {
         layout: {
-          background: { type: ColorType.Solid, color: '#f3f4f6' },
-          textColor: textColor,
+          background: { type: ColorType.Solid, color: colors.bg },
+          textColor: colors.text,
         },
         grid: {
-          vertLines: { color: gridColor, style: 0, visible: true },
-          horzLines: { color: gridColor, style: 0, visible: true },
+          vertLines: { color: colors.grid, style: 0, visible: true },
+          horzLines: { color: colors.grid, style: 0, visible: true },
         },
         rightPriceScale: {
-          borderColor: borderColor,
-          textColor: textColor,
+          borderColor: colors.border,
+          textColor: colors.text,
           visible: true,
         },
         timeScale: {
-          borderColor: borderColor,
+          borderColor: colors.border,
           timeVisible: true,
           secondsVisible: false,
           visible: true,
@@ -90,19 +106,18 @@ export const LightweightChart = ({ data, positions = [] }: LightweightChartProps
         height: chartContainerRef.current.clientHeight,
       });
 
-      const series = chart.addSeries({
-        type: 'Candlestick' as any,
-        upColor: '#3b82f6',
-        downColor: '#ef4444',
-        borderDownColor: '#ef4444',
-        borderUpColor: '#3b82f6',
-        wickDownColor: '#ef4444',
-        wickUpColor: '#3b82f6',
+      const series = chart.addSeries(CandlestickSeries, {
+        upColor: colors.up,
+        downColor: colors.down,
+        borderDownColor: colors.down,
+        borderUpColor: colors.up,
+        wickDownColor: colors.down,
+        wickUpColor: colors.up,
         priceFormat: {
           type: 'custom',
           formatter: (price: any) => formatPrice(price),
         },
-      } as any);
+      });
 
       chartRef.current = chart;
       seriesRef.current = series;
@@ -133,12 +148,13 @@ export const LightweightChart = ({ data, positions = [] }: LightweightChartProps
     } catch (error) {
       console.error('Error creating chart:', error);
     }
-  }, []);
+  }, [colors]);
 
+  // Mise à jour des données du graphique (inchangée)
   useEffect(() => {
     if (seriesRef.current && data.length > 0) {
       try {
-        const formattedData = data.map(item => ({
+        const formattedData: CandlestickData[] = data.map(item => ({
           time: Math.floor(parseInt(item.time) / 1000) as Time,
           open: parseFloat(item.open),
           high: parseFloat(item.high),
@@ -147,15 +163,19 @@ export const LightweightChart = ({ data, positions = [] }: LightweightChartProps
         }));
 
         seriesRef.current.setData(formattedData);
+        chartRef.current?.timeScale().scrollToRealTime();
+        
       } catch (error) {
         console.error('Error setting chart data:', error);
       }
     }
   }, [data]);
 
+  // 🛑 MODIFICATION ICI : Désactive la création des lignes de position.
   useEffect(() => {
-    if (!seriesRef.current || !positions || positions.length === 0) return;
-
+    if (!seriesRef.current) return;
+    
+    // Nettoyage des anciennes lignes (doit rester pour retirer celles déjà dessinées)
     priceLinesRef.current.forEach(line => {
       try {
         seriesRef.current.removePriceLine(line);
@@ -165,28 +185,36 @@ export const LightweightChart = ({ data, positions = [] }: LightweightChartProps
     });
     priceLinesRef.current = [];
 
-    positions.forEach(position => {
-      try {
-        const entryPrice = position.entry_x6 / 1000000;
-        const pnl = position.pnl_usd6 ? position.pnl_usd6 / 1000000 : 0;
-        const pnlText = pnl >= 0 ? `+$${formatPrice(pnl)}` : `-$${formatPrice(Math.abs(pnl))}`;
-        const positionType = position.long_side ? 'LONG' : 'SHORT';
-        
-        const priceLine = seriesRef.current.createPriceLine({
-          price: entryPrice,
-          color: position.long_side ? '#3b82f6' : '#ef4444',
-          lineWidth: 2,
-          lineStyle: 2,
-          axisLabelVisible: true,
-          title: `${positionType} ${pnlText}`,
-        });
+    // 🔴 RETIRER/COMMENTER LE BLOC SUIVANT POUR DÉSACTIVER LES LIGNES :
+    /*
+    if (!positions || positions.length === 0) return;
 
-        priceLinesRef.current.push(priceLine);
-      } catch (error) {
-        console.error('Error creating price line:', error);
+    positions.forEach(position => {
+      if (position.entry_x6) { 
+        try {
+          const entryPrice = position.entry_x6 / 1000000;
+          const pnl = position.pnl_usd6 ? position.pnl_usd6 / 1000000 : 0;
+          const pnlText = pnl >= 0 ? `+$${formatPrice(pnl)}` : `-$${formatPrice(Math.abs(pnl))}`;
+          const positionType = position.long_side ? 'LONG' : 'SHORT';
+          
+          const priceLine = seriesRef.current.createPriceLine({
+            price: entryPrice,
+            color: position.long_side ? colors.up : colors.down,
+            lineWidth: 2,
+            lineStyle: 2,
+            axisLabelVisible: true,
+            title: `${positionType} ${pnlText}`,
+          });
+
+          priceLinesRef.current.push(priceLine);
+        } catch (error) {
+          console.error('Error creating price line:', error);
+        }
       }
     });
-  }, [positions]);
+    */
+    // Fin du bloc commenté.
+  }, [positions, colors]);
 
   return (
     <div className="w-full h-[calc(100%-3rem)] relative">

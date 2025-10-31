@@ -1,7 +1,16 @@
-import { Menu, TrendingUp, BarChart3, Wallet } from "lucide-react";
-import { ConnectButton } from '@rainbow-me/rainbowkit';
+"use client";
 
-const Sidebar = () => {
+import { Menu, TrendingUp, BarChart3, Wallet, Droplet } from "lucide-react";
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import React from 'react'; // Import de React
+
+// Définition des props que le composant attend
+interface SidebarProps {
+  // Fonction pour définir si la FaucetDialog doit être ouverte ou fermée
+  setIsFaucetOpen: (open: boolean) => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen }) => {
   return (
     <aside className="fixed left-0 top-0 z-20 w-[60px] h-screen flex-shrink-0 bg-sidebar flex flex-col items-center py-4 shadow-2xl">
       {/* Top Icons */}
@@ -27,6 +36,17 @@ const Sidebar = () => {
         >
           <BarChart3 className="w-6 h-6" />
         </a>
+
+        {/* Bouton Faucet */}
+        <button
+          // Utilise la prop pour ouvrir le FaucetDialog dans le composant parent (Index.js)
+          onClick={() => setIsFaucetOpen(true)}
+          className="p-2 rounded-xl text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors duration-200"
+          title="Faucet"
+        >
+          <Droplet className="w-6 h-6" />
+        </button>
+
       </div>
 
       {/* Bottom Actions - Wallet Connection */}

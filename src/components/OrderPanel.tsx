@@ -8,6 +8,86 @@ import { useToast } from "@/hooks/use-toast";
 import { DepositDialog } from "./DepositDialog";
 import { Asset } from "./ChartControls";
 import { useAssetConfig } from "@/hooks/useAssetConfig";
+import { Landmark, Send } from "lucide-react"; 
+import { ChevronUp, ChevronDown } from "lucide-react"; 
+
+// ====================================================================
+// COMPOSANT : StepController (Déplacé ici pour fonctionner)
+// ====================================================================
+
+interface StepControllerProps {
+    value: string | number;
+    onChange: (value: number) => void;
+    step: number;
+    min?: number;
+    max?: number;
+    decimals?: number;
+    label: string;
+    unit: string;
+}
+
+const StepController: React.FC<StepControllerProps> = ({ 
+    value, 
+    onChange, 
+    step, 
+    min = 0, 
+    max = Infinity, 
+    decimals = 2,
+    label,
+    unit
+}) => {
+    const numericValue = Number(value);
+
+    const handleStep = (delta: number) => {
+        const newValue = Math.min(max, Math.max(min, numericValue + delta));
+        onChange(Number(newValue.toFixed(decimals)));
+    };
+    
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = Number(e.target.value);
+        if (!isNaN(val)) {
+            onChange(val); 
+        }
+    };
+
+    return (
+        <div className="relative flex items-center">
+            {/* Input principal */}
+            <Input
+                type="number"
+                placeholder="0.00"
+                value={value}
+                onChange={handleInputChange}
+                className={`w-full text-lg font-medium pr-10`} 
+                step={step}
+                min={min}
+                max={max}
+            />
+            
+            {/* Contrôles Plus/Moins superposés */}
+            <div className="absolute right-0 top-0 h-full flex flex-col justify-center border-l border-border">
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-1/2 w-8 p-0 border-b border-border/80 rounded-none rounded-tr-sm"
+                    onClick={() => handleStep(step)}
+                >
+                    <ChevronUp className="w-4 h-4" />
+                </Button>
+                <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    className="h-1/2 w-8 p-0 rounded-none rounded-br-sm"
+                    onClick={() => handleStep(-step)}
+                >
+                    <ChevronDown className="w-4 h-4" />
+                </Button>
+            </div>
+        </div>
+    );
+};
+// ====================================================================
+
 
 type OrderType = "limit" | "market";
 
@@ -21,46 +101,162 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const [tpEnabled, setTpEnabled] = useState(false);
   const [slEnabled, setSlEnabled] = useState(false);
   const [leverage, setLeverage] = useState(10);
-  const [lots, setLots] = useState(1);
+  const [lotsDisplay, setLotsDisplay] = useState(0.01); 
   const [limitPrice, setLimitPrice] = useState('');
   const [tpPrice, setTpPrice] = useState('');
   const [slPrice, setSlPrice] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { balance, available, locked, refetchAll } = useVault();
+  const { balance, available, locked, refetchAll, tokenBalance } = useVault(); 
   const { openPosition } = useTrading();
   const { toast } = useToast();
-  const { getConfigById, convertDisplayToLots, convertLotsToDisplay } = useAssetConfig();
+  const { getConfigById, convertDisplayToLots } = useAssetConfig(); 
+  
+  const assetConfig = getConfigById(selectedAsset.id);
 
-  // Update limit price when current price changes or asset changes
-  useEffect(() => {
-    if (currentPrice > 0 && !limitPrice) {
-      setLimitPrice(currentPrice.toString());
-    }
-  }, [currentPrice, selectedAsset.id]);
-
-  // Calculate trade values
-  const calculations = useMemo(() => {
-    const price = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
-    const config = getConfigById(selectedAsset.id);
-    const actualLots = convertDisplayToLots(lots, selectedAsset.id);
-    const lotSize = config ? (config.lot_num / config.lot_den) : 0.01;
-    const notional = (actualLots * lotSize) * price;
-    const margin = notional / leverage;
+  const { minLotSizeDisplay, lotStep, priceDecimals, priceStep } = useMemo(() => {
+    const num = assetConfig?.lot_num || 1;
+    const den = assetConfig?.lot_den || 100;
+    const lotSize = num / den;
+    const lotStep = lotSize; 
     
-    // Liquidation price calculation
-    // For long: liqPrice = entryPrice * (1 - 1/leverage)
-    // For short: liqPrice = entryPrice * (1 + 1/leverage)
-    const liqPriceLong = price * (1 - 0.99 / leverage);
-    const liqPriceShort = price * (1 + 0.99 / leverage);
+    const tickSizeX6 = assetConfig?.tick_size_usd6 || 10000; 
+    const powerOfTen = Math.round(Math.log10(1000000 / tickSizeX6)); 
+    const decimals = Math.max(0, powerOfTen); 
+    const step = 1 / (10 ** decimals); 
 
     return {
-      value: notional,
-      cost: margin,
+      minLotSizeDisplay: lotSize,
+      lotStep: lotStep,
+      priceDecimals: decimals,
+      priceStep: step,
+    };
+  }, [assetConfig]);
+
+
+  useEffect(() => {
+    setLotsDisplay(minLotSizeDisplay); 
+    if (currentPrice > 0 && selectedAsset.id) {
+      setLimitPrice(currentPrice.toFixed(priceDecimals));
+    }
+  }, [selectedAsset.id, currentPrice, minLotSizeDisplay, priceDecimals]); 
+
+  
+  const handleLotsChange = (value: number) => {
+    setLotsDisplay(value);
+  };
+  
+  const handleTrade = async (longSide: boolean) => {
+    
+    // --- VALIDATION SL/TP ---
+    const entryPrice = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
+    const price = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
+    const liqPrice = longSide ? price * (1 - 0.99 / leverage) : price * (1 + 0.99 / leverage);
+
+    if (slEnabled) {
+      const sl = Number(slPrice);
+
+      // Règle 1: SL ne doit pas être "pire" que le prix de liquidation
+      if ((longSide && sl <= liqPrice) || (!longSide && sl >= liqPrice)) {
+        return toast({
+          title: 'Validation Error',
+          description: `Stop Loss must be safer than the Estimated Liquidation Price (${formatPrice(liqPrice)})`,
+          variant: "destructive",
+        });
+      }
+
+      // Règle 2: SL doit être dans le sens de la perte
+      if ((longSide && sl >= entryPrice) || (!longSide && sl <= entryPrice)) {
+        return toast({
+          title: 'Validation Error',
+          description: `Stop Loss must be below Entry Price for Long or above for Short.`,
+          variant: "destructive",
+        });
+      }
+    }
+
+    if (tpEnabled) {
+      const tp = Number(tpPrice);
+
+      // Règle 3: TP doit être dans le sens du profit
+      if ((longSide && tp <= entryPrice) || (!longSide && tp >= entryPrice)) {
+        return toast({
+          title: 'Validation Error',
+          description: `Take Profit must be above Entry Price for Long or below for Short.`,
+          variant: "destructive",
+        });
+      }
+    }
+    // --- FIN VALIDATION ---
+
+
+    setLoading(true);
+    try {
+      const isLimit = orderType === 'limit';
+      const priceX6 = isLimit && limitPrice ? Math.round(Number(limitPrice) * 1000000) : 0;
+      const slX6 = slEnabled && slPrice ? Math.round(Number(slPrice) * 1000000) : 0;
+      const tpX6 = tpEnabled && tpPrice ? Math.round(Number(tpPrice) * 1000000) : 0;
+      
+      const actualLots = convertDisplayToLots(lotsDisplay, selectedAsset.id);
+
+      const txHash = await openPosition({ 
+        longSide,
+        leverageX: leverage,
+        lots: actualLots,
+        isLimit,
+        priceX6,
+        slX6,
+        tpX6,
+        assetId: selectedAsset.id, 
+      });
+      
+      const explorerUrl = `https://atlantic.pharosscan.xyz/tx/${txHash}`;
+
+      toast({
+        title: 'Order placed',
+        description: (
+          <span className="flex items-center space-x-1">
+            <span>{longSide ? 'Buy' : 'Sell'} order placed successfully.</span>
+            <a href={explorerUrl} target="_blank" rel="noopener noreferrer" className="text-trading-blue underline flex items-center">
+              View Transaction <Send className="w-3 h-3 ml-1" />
+            </a>
+          </span>
+        ),
+      });
+
+      setLimitPrice(currentPrice.toFixed(priceDecimals)); 
+      setTpPrice('');
+      setSlPrice('');
+      setTpEnabled(false);
+      setSlEnabled(false);
+      setLotsDisplay(minLotSizeDisplay);
+
+      setTimeout(() => refetchAll(), 2000);
+    } catch (error: any) {
+      toast({
+        title: 'Order failed',
+        description: error?.message || 'Transaction failed',
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const calculations = useMemo(() => {
+    const price = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
+    const displayNotional = lotsDisplay * price; 
+    
+    const liqPriceLong = price * (1 - 0.99 / leverage);
+    const liqPriceShort = price * (1 + 1/ leverage);
+
+    return {
+      value: displayNotional,
+      cost: displayNotional / leverage,
       liqPriceLong,
       liqPriceShort,
     };
-  }, [lots, leverage, limitPrice, currentPrice, orderType, selectedAsset.id, getConfigById, convertDisplayToLots]);
+  }, [lotsDisplay, leverage, limitPrice, currentPrice, orderType, selectedAsset.id, getConfigById, convertDisplayToLots]);
 
   const formatPrice = (value: number) => {
     if (value === 0) return "0.00";
@@ -70,51 +266,10 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
     return value.toFixed(2);
   };
 
-  const handleTrade = async (longSide: boolean) => {
-    setLoading(true);
-    try {
-      const isLimit = orderType === 'limit';
-      const priceX6 = isLimit && limitPrice ? Math.round(Number(limitPrice) * 1000000) : 0;
-      const slX6 = slEnabled && slPrice ? Math.round(Number(slPrice) * 1000000) : 0;
-      const tpX6 = tpEnabled && tpPrice ? Math.round(Number(tpPrice) * 1000000) : 0;
-      const actualLots = convertDisplayToLots(lots, selectedAsset.id);
-
-      await openPosition({
-        longSide,
-        leverageX: leverage,
-        lots: actualLots,
-        isLimit,
-        priceX6,
-        slX6,
-        tpX6,
-      });
-
-      toast({
-        title: 'Order placed',
-        description: `${longSide ? 'Buy' : 'Sell'} order placed successfully`,
-      });
-
-      // Reset form
-      setLimitPrice('');
-      setTpPrice('');
-      setSlPrice('');
-      setTpEnabled(false);
-      setSlEnabled(false);
-
-      setTimeout(() => refetchAll(), 2000);
-    } catch (error: any) {
-      toast({
-        title: 'Order failed',
-        description: error?.message || 'Transaction failed',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="w-[320px] h-full flex flex-col border-l border-border shadow-md bg-card">
+      
       {/* Order Panel Content (Scrollable) */}
       <div className="flex-grow p-4 space-y-5 overflow-y-auto custom-scrollbar">
         {/* 1. Tabs (Limit, Market) and Leverage */}
@@ -158,13 +313,13 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
         {orderType === "limit" && (
           <div>
             <span className="text-light-text text-xs block mb-1">Limit Price (USD)</span>
-            <Input
-              type="number"
-              placeholder="0.00"
-              value={limitPrice}
-              onChange={(e) => setLimitPrice(e.target.value)}
-              className="w-full text-lg font-medium"
-              step="0.01"
+            <StepController 
+                value={limitPrice}
+                onChange={setLimitPrice}
+                step={priceStep}
+                decimals={priceDecimals}
+                label="Price"
+                unit="USD"
             />
           </div>
         )}
@@ -172,36 +327,20 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
         {/* 3. Amount Input (Lots) */}
         <div>
           <span className="text-light-text text-xs block mb-1">
-            Lots (1 lot = {(() => {
-              const config = getConfigById(selectedAsset.id);
-              return config ? (config.lot_num / config.lot_den).toFixed(config.lot_den >= 100 ? 2 : config.lot_den >= 10 ? 1 : 0) : '0.01';
-            })()} {selectedAsset.symbol.split('/')[0] || 'BTC'})
+            Lots ({selectedAsset.symbol.split('/')[0] || 'BTC'})
           </span>
-          <Input
-            type="number"
-            value={lots}
-            onChange={(e) => setLots(Math.max(0.01, Number(e.target.value)))}
-            className="w-full text-lg font-medium"
-            min="0.01"
-            step="0.01"
+          <StepController 
+              value={lotsDisplay}
+              onChange={handleLotsChange}
+              step={lotStep}
+              min={minLotSizeDisplay}
+              decimals={lotStep >= 1 ? 0 : 2} 
+              label="Lots"
+              unit={selectedAsset.symbol.split('/')[0] || 'BTC'}
           />
         </div>
 
-        {/* 4. Percentage Buttons */}
-        <div className="grid grid-cols-5 gap-1.5 mb-4">
-          {["10%", "25%", "50%", "75%", "100%"].map((percentage) => (
-            <Button
-              key={percentage}
-              variant="secondary"
-              size="sm"
-              className="text-xs py-1.5"
-            >
-              {percentage}
-            </Button>
-          ))}
-        </div>
-
-        {/* 5. Take Profit / Stop Loss */}
+        {/* 4. Take Profit / Stop Loss (Utiliser StepController) */}
         <div className="space-y-3">
           {/* Take Profit Toggle */}
           <div>
@@ -214,16 +353,14 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
               <span className="text-sm font-medium">Take Profit</span>
             </label>
             {tpEnabled && (
-              <div>
-                <Input
-                  type="number"
-                  placeholder="0.00"
+              <StepController 
                   value={tpPrice}
-                  onChange={(e) => setTpPrice(e.target.value)}
-                  className="w-full text-sm font-medium"
-                  step="0.01"
-                />
-              </div>
+                  onChange={setTpPrice}
+                  step={priceStep}
+                  decimals={priceDecimals}
+                  label="TP Price"
+                  unit="USD"
+              />
             )}
           </div>
 
@@ -238,21 +375,19 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
               <span className="text-sm font-medium">Stop Loss</span>
             </label>
             {slEnabled && (
-              <div>
-                <Input
-                  type="number"
-                  placeholder="0.00"
+              <StepController 
                   value={slPrice}
-                  onChange={(e) => setSlPrice(e.target.value)}
-                  className="w-full text-sm font-medium"
-                  step="0.01"
-                />
-              </div>
+                  onChange={setSlPrice}
+                  step={priceStep}
+                  decimals={priceDecimals}
+                  label="SL Price"
+                  unit="USD"
+              />
             )}
           </div>
         </div>
 
-        {/* 6. Buy / Sell Buttons */}
+        {/* 5. Buy / Sell Buttons */}
         <div className="flex space-x-3 pt-2 pb-3">
           <Button
             onClick={() => handleTrade(true)}
@@ -270,7 +405,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
           </Button>
         </div>
 
-        {/* 7. Account Details (First Block) */}
+        {/* 6. Account Details (Calculations) */}
         <div className="text-xs space-y-1.5 pt-3 border-t border-border">
           <div className="flex justify-between text-light-text">
             <span>Value</span>
@@ -287,29 +422,38 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
             </span>
           </div>
         </div>
-
-        {/* 8. Trading Account Balance */}
-        <div className="space-y-2 pt-3 border-t border-border">
-          <div className="flex justify-between items-center">
-            <span className="text-sm font-semibold text-foreground">Trading Account</span>
-            <span className="text-sm font-bold text-primary">${balance}</span>
-          </div>
-          <DepositDialog />
+      </div>
+      
+      {/* 7. Deposit Info (Landmark Panel) - Hauteur 200px */}
+      <div className="flex-shrink-0 mx-4 mt-2 mb-4 p-4 h-[200px] bg-blue-50 rounded-lg relative overflow-hidden">
+        
+        {/* Logo de banque en fond (Landmark) */}
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[33%]">
+            <Landmark className="w-48 h-48 text-blue-200 opacity-70" />
         </div>
+        
+        {/* Contenu - Aligné à droite */}
+        <div className="relative z-10 flex flex-col items-end w-full h-full justify-between">
+          
+          {/* Informations (Haut à droite) */}
+          <div className="text-xs space-y-1.5 pt-1">
+              <div className="flex justify-between items-center w-full">
+                <span className="text-light-text min-w-[80px] text-right">Total Balance:</span>
+                <span className="font-semibold text-foreground">${balance}</span>
+              </div>
+              <div className="flex justify-between items-center w-full">
+                <span className="text-light-text min-w-[80px] text-right">Available:</span>
+                <span className="font-semibold text-foreground">${available}</span>
+              </div>
+              <div className="flex justify-between items-center w-full">
+                <span className="text-light-text min-w-[80px] text-right">Locked Margin:</span>
+                <span className="font-semibold text-foreground">${locked}</span>
+              </div>
+          </div>
 
-        {/* 9. Account Details (Second Block) */}
-        <div className="text-xs space-y-1.5 pt-2">
-          <div className="flex justify-between text-light-text">
-            <span>Balance (Total)</span>
-            <span className="text-foreground">${balance}</span>
-          </div>
-          <div className="flex justify-between text-light-text">
-            <span>Available Balance</span>
-            <span className="text-foreground">${available}</span>
-          </div>
-          <div className="flex justify-between text-light-text">
-            <span>Locked (Margin)</span>
-            <span className="text-foreground">${locked}</span>
+          {/* Bouton Deposit (Bas à droite) */}
+          <div className="w-full flex justify-end">
+            <DepositDialog />
           </div>
         </div>
       </div>

@@ -1,13 +1,14 @@
 import { Button } from "@/components/ui/button";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { ChevronDown } from "lucide-react";
 import { useWebSocket, getAssetsByCategory } from "@/hooks/useWebSocket";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useState } from "react";
 
 export interface Asset {
   id: number;
@@ -49,6 +50,13 @@ export const ChartControls = ({
   const { data: wsData } = useWebSocket();
   const categories = getAssetsByCategory(wsData);
 
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  const handleAssetChange = (asset: Asset) => {
+    onAssetChange(asset);
+    setIsDialogOpen(false);
+  };
+
   const formatPrice = (value: number) => {
     if (value === 0) return "0.00";
     const integerPart = Math.floor(Math.abs(value)).toString().length;
@@ -61,9 +69,9 @@ export const ChartControls = ({
 
   return (
     <div className="absolute bottom-0 left-0 right-0 h-12 bg-chart-bg border-t border-border flex items-center justify-between px-4 gap-4">
-      {/* Asset Selector */}
-      <Popover>
-        <PopoverTrigger asChild>
+      {/* Asset Selector - UTILISE MAINTENANT DIALOG */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogTrigger asChild>
           <Button
             variant="ghost"
             className="gap-2 font-semibold text-base hover:bg-accent"
@@ -71,8 +79,10 @@ export const ChartControls = ({
             {selectedAsset.symbol}
             <ChevronDown className="h-4 w-4" />
           </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-[600px] h-[500px] p-0 bg-background z-50" align="center" side="top">
+        </DialogTrigger>
+        
+        {/* MODIFICATION ICI : Ajout de 'overflow-hidden' au DialogContent */}
+        <DialogContent className="w-[600px] h-[500px] max-w-none p-0 bg-background z-50 overflow-hidden flex flex-col">
           <Tabs defaultValue="crypto" className="w-full h-full flex flex-col">
             <TabsList className="w-full grid grid-cols-5 rounded-none border-b flex-shrink-0">
               <TabsTrigger value="crypto" className="text-xs">Crypto</TabsTrigger>
@@ -81,6 +91,7 @@ export const ChartControls = ({
               <TabsTrigger value="stocks" className="text-xs">Stocks</TabsTrigger>
               <TabsTrigger value="indices" className="text-xs">Indices</TabsTrigger>
             </TabsList>
+            {/* ScrollArea a déjà 'flex-1' donc il prendra l'espace restant */}
             <ScrollArea className="flex-1">
               <TabsContent value="crypto" className="m-0 p-2">
                 <div className="space-y-1">
@@ -90,7 +101,7 @@ export const ChartControls = ({
                         key={asset.id}
                         variant={selectedAsset.id === asset.id ? "secondary" : "ghost"}
                         className="w-full justify-between h-auto py-2"
-                        onClick={() => onAssetChange(asset)}
+                        onClick={() => handleAssetChange(asset)}
                       >
                         <div className="flex flex-col items-start">
                           <span className="font-semibold text-sm">{asset.symbol}</span>
@@ -109,6 +120,7 @@ export const ChartControls = ({
                   )}
                 </div>
               </TabsContent>
+              {/* FOREX TabContent */}
               <TabsContent value="forex" className="m-0 p-2">
                 <div className="space-y-1">
                   {categories.forex.length > 0 ? (
@@ -117,7 +129,7 @@ export const ChartControls = ({
                         key={asset.id}
                         variant={selectedAsset.id === asset.id ? "secondary" : "ghost"}
                         className="w-full justify-between h-auto py-2"
-                        onClick={() => onAssetChange(asset)}
+                        onClick={() => handleAssetChange(asset)}
                       >
                         <div className="flex flex-col items-start">
                           <span className="font-semibold text-sm">{asset.symbol}</span>
@@ -136,6 +148,8 @@ export const ChartControls = ({
                   )}
                 </div>
               </TabsContent>
+
+              {/* COMMODITIES TabContent */}
               <TabsContent value="commodities" className="m-0 p-2">
                 <div className="space-y-1">
                   {categories.commodities.length > 0 ? (
@@ -144,7 +158,7 @@ export const ChartControls = ({
                         key={asset.id}
                         variant={selectedAsset.id === asset.id ? "secondary" : "ghost"}
                         className="w-full justify-between h-auto py-2"
-                        onClick={() => onAssetChange(asset)}
+                        onClick={() => handleAssetChange(asset)}
                       >
                         <div className="flex flex-col items-start">
                           <span className="font-semibold text-sm">{asset.symbol}</span>
@@ -163,6 +177,8 @@ export const ChartControls = ({
                   )}
                 </div>
               </TabsContent>
+
+              {/* STOCKS TabContent */}
               <TabsContent value="stocks" className="m-0 p-2">
                 <div className="space-y-1">
                   {categories.stocks.length > 0 ? (
@@ -171,7 +187,7 @@ export const ChartControls = ({
                         key={asset.id}
                         variant={selectedAsset.id === asset.id ? "secondary" : "ghost"}
                         className="w-full justify-between h-auto py-2"
-                        onClick={() => onAssetChange(asset)}
+                        onClick={() => handleAssetChange(asset)}
                       >
                         <div className="flex flex-col items-start">
                           <span className="font-semibold text-sm">{asset.symbol}</span>
@@ -190,6 +206,8 @@ export const ChartControls = ({
                   )}
                 </div>
               </TabsContent>
+              
+              {/* INDICES TabContent */}
               <TabsContent value="indices" className="m-0 p-2">
                 <div className="space-y-1">
                   {categories.indices.length > 0 ? (
@@ -198,7 +216,7 @@ export const ChartControls = ({
                         key={asset.id}
                         variant={selectedAsset.id === asset.id ? "secondary" : "ghost"}
                         className="w-full justify-between h-auto py-2"
-                        onClick={() => onAssetChange(asset)}
+                        onClick={() => handleAssetChange(asset)}
                       >
                         <div className="flex flex-col items-start">
                           <span className="font-semibold text-sm">{asset.symbol}</span>
@@ -219,8 +237,9 @@ export const ChartControls = ({
               </TabsContent>
             </ScrollArea>
           </Tabs>
-        </PopoverContent>
-      </Popover>
+        </DialogContent>
+      </Dialog>
+      {/* Fin de la section Dialog */}
 
       {/* Price Info */}
       <div className="flex items-center gap-3">
