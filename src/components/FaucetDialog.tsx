@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Droplet, DollarSign, CheckCircle, Wallet } from 'lucide-react'; 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { useFaucet } from '@/hooks/useFaucet'; // Import du hook fonctionnel
+import { useFaucet } from '@/hooks/useFaucet'; 
 import { useToast } from "@/hooks/use-toast";
 
 // Définitions des props pour le contrôle
@@ -46,19 +46,23 @@ export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, 
   const handleClaim = async () => {
     try {
         await claimTestTokens();
+        // 🛑 Message de succès affiché UNIQUEMENT si claimTestTokens réussit
         toast({ title: "Claim Successful", description: "Test funds claimed!" });
     } catch (error: any) {
-        toast({ title: "Claim Failed", description: error?.shortMessage || "Transaction failed.", variant: "destructive" });
+        // 🛑 Gestion des erreurs plus précise (souvent le message vient de Wagmi)
+        toast({ title: "Claim Failed", description: error?.shortMessage || error?.message || "Transaction failed or was rejected.", variant: "destructive" });
     }
   };
 
   // Fonction de gestion de l'Approbation
   const handleApprove = async () => {
     try {
-        await approveVault(); // Approbation infinie
+        await approveVault(); 
+        // 🛑 Message de succès affiché UNIQUEMENT si approveVault réussit
         toast({ title: "Approval Successful", description: "Vault approved for infinite TUSD." });
     } catch (error: any) {
-        toast({ title: "Approval Failed", description: error?.shortMessage || "Transaction failed.", variant: "destructive" });
+        // 🛑 Gestion des erreurs plus précise
+        toast({ title: "Approval Failed", description: error?.shortMessage || error?.message || "Transaction failed or was rejected.", variant: "destructive" });
     }
   };
 

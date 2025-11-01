@@ -8,8 +8,10 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 
 const TradingSection = () => {
   const { data: wsData } = useWebSocket();
+  
+  // 🛑 L'ID est initialisé à 0, mais sera mis à jour par ChartControls.
   const [selectedAsset, setSelectedAsset] = useState<Asset>({
-    id: 0,
+    id: 0, 
     name: "Bitcoin",
     symbol: "BTC/USD",
     pair: "btc_usdt",
@@ -19,9 +21,10 @@ const TradingSection = () => {
   const { data } = useChartData(selectedAsset.id, selectedTimeframe);
   const { positions } = usePositions();
 
-  // Get current price from WebSocket
+  // 1. Get current price from WebSocket (Tick le plus récent)
   const currentWsPrice = useMemo(() => {
     if (!selectedAsset.pair || !wsData[selectedAsset.pair]) return null;
+    
     const pairData = wsData[selectedAsset.pair];
     if (pairData.instruments && pairData.instruments.length > 0) {
       return parseFloat(pairData.instruments[0].currentPrice);
@@ -29,23 +32,29 @@ const TradingSection = () => {
     return null;
   }, [wsData, selectedAsset.pair]);
 
-  // Calculate price change
-  const { priceChange, priceChangePercent, currentPrice } = useMemo(() => {
-    if (data.length < 2) {
-      return { priceChange: 0, priceChangePercent: 0, currentPrice: 0 };
+  // 2. Calculate price change (Basé sur les données historiques/agrégées)
+  const { priceChange, priceChangePercent, aggregatedCurrentPrice } = useMemo(() => {
+    const currentPriceUsed = currentWsPrice || 
+                            (data.length > 0 ? parseFloat(data[data.length - 1].close) : 0);
+
+    if (data.length < 2 || currentPriceUsed === 0) {
+      return { priceChange: 0, priceChangePercent: 0, aggregatedCurrentPrice: currentPriceUsed };
     }
 
     const firstPrice = parseFloat(data[0].open);
-    const lastPrice = parseFloat(data[data.length - 1].close);
-    const change = lastPrice - firstPrice;
+    
+    const change = currentPriceUsed - firstPrice;
     const changePercent = (change / firstPrice) * 100;
 
     return {
       priceChange: change,
       priceChangePercent: changePercent,
-      currentPrice: lastPrice,
+      aggregatedCurrentPrice: currentPriceUsed,
     };
-  }, [data]);
+  }, [data, currentWsPrice]);
+  
+  const finalCurrentPrice = currentWsPrice || aggregatedCurrentPrice;
+
 
   return (
     <section id="trading" className="snap-section flex h-screen w-full">
@@ -54,19 +63,19 @@ const TradingSection = () => {
         <LightweightChart data={data} positions={positions} />
         <ChartControls
           selectedAsset={selectedAsset}
-          onAssetChange={setSelectedAsset}
+          onAssetChange={setSelectedAsset} // 🛑 C'est ici que l'état de l'ID est mis à jour
           selectedTimeframe={selectedTimeframe}
           onTimeframeChange={setSelectedTimeframe}
           priceChange={priceChange}
           priceChangePercent={priceChangePercent}
-          currentPrice={currentPrice}
+          currentPrice={aggregatedCurrentPrice} 
         />
       </div>
 
       {/* Order Panel */}
       <OrderPanel 
         selectedAsset={selectedAsset} 
-        currentPrice={currentWsPrice || currentPrice}
+        currentPrice={finalCurrentPrice}
       />
     </section>
   );

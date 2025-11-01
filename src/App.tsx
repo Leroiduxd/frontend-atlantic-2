@@ -13,9 +13,12 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 const App = () => (
-  <WagmiProvider config={config}>
-    <QueryClientProvider client={queryClient}>
-      <RainbowKitProvider>
+  // 🛑 1. QueryClientProvider (Doit être en haut pour le cache)
+  <QueryClientProvider client={queryClient}> 
+    {/* 🛑 2. WagmiProvider (Doit être en dessous de QueryClient) */}
+    <WagmiProvider config={config}> 
+      {/* 🛑 3. RainbowKitProvider (Doit être en dessous de Wagmi) */}
+      <RainbowKitProvider> 
         <TooltipProvider>
           <Toaster />
           <Sonner />
@@ -28,8 +31,8 @@ const App = () => (
           </BrowserRouter>
         </TooltipProvider>
       </RainbowKitProvider>
-    </QueryClientProvider>
-  </WagmiProvider>
+    </WagmiProvider>
+  </QueryClientProvider>
 );
 
 export default App;

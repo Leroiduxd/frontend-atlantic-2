@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useVault } from '@/hooks/useVault'; 
 import { useToast } from '@/hooks/use-toast';
 import { BanknoteArrowDown, BanknoteArrowUp, ArrowRight } from 'lucide-react'; 
+import { useVaultBalances } from '@/hooks/useVaultBalances'; 
 
 type TransactionMode = 'deposit' | 'withdraw';
 
@@ -16,33 +17,40 @@ export const DepositDialog = () => {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<TransactionMode>('deposit'); 
   
-  const { deposit, withdraw, tokenBalance, refetchAll } = useVault();
+  const { deposit, withdraw, refetchAll } = useVault(); 
+  const { walletBalance, totalBalance, lockedMargin, availableBalance, refetchAll: refetchBalances } = useVaultBalances();
 
   const { toast } = useToast();
 
-  // --- Données du compte (Simulées) ---
-  const simulatedWalletBalance = '999998999909000.00'; 
-  const simulatedVaultBalance = 8500.00; 
-  const simulatedUsedMargin = 1500.00;
-  const simulatedAvailableBalance = simulatedVaultBalance - simulatedUsedMargin; 
+  // --- Données d'affichage (utilisent les valeurs réelles) ---
+  const simulatedWalletBalance = walletBalance; 
+  const simulatedVaultBalance = totalBalance; 
+  const simulatedUsedMargin = lockedMargin;
+  const simulatedAvailableBalance = availableBalance; 
   
-  // Couleurs et classes
+  // Couleurs et classes (inchangées)
   const depositColor = 'text-trading-blue';
-  const withdrawColor = 'text-red-500'; // Couleur d'action du rouge
-  
-  // NOUVELLES COULEURS DE FOND CLAIR ET FONCÉ
-  const currentDarkBgColor = mode === 'deposit' ? 'bg-blue-100' : 'bg-red-50'; // Rouge beaucoup plus clair (bg-red-50)
-  
+  const withdrawColor = 'text-red-500'; 
+  const currentDarkBgColor = mode === 'deposit' ? 'bg-blue-100' : 'bg-red-50'; 
   const currentActionColorClass = mode === 'deposit' ? 'bg-trading-blue hover:bg-trading-blue/90' : 'bg-trading-red hover:bg-trading-red/90';
   const CurrentMainIconColor = mode === 'deposit' ? depositColor : withdrawColor;
+
+  // 🛑 Conversion des soldes en nombres pour la validation
+  const numericWalletBalance = useMemo(() => parseFloat(walletBalance.replace(/,/g, '')) || 0, [walletBalance]);
+  const numericAvailableBalance = useMemo(() => availableBalance, [availableBalance]);
+
+  // 🛑 Détermine le solde maximum autorisé pour l'action en cours
+  const maxAmount = useMemo(() => {
+    return mode === 'deposit' ? numericWalletBalance : numericAvailableBalance;
+  }, [mode, numericWalletBalance, numericAvailableBalance]);
 
   // Détermine la valeur par défaut de l'input
   const defaultInputValue = useMemo(() => {
     if (mode === 'deposit') {
-        return simulatedWalletBalance;
+        return walletBalance; 
     }
-    return simulatedAvailableBalance.toFixed(2);
-  }, [mode, simulatedWalletBalance, simulatedAvailableBalance]);
+    return availableBalance.toFixed(2); 
+  }, [mode, walletBalance, availableBalance]);
 
   // Met à jour l'input avec la valeur par défaut lors du changement de mode ou d'ouverture
   useEffect(() => {
@@ -51,32 +59,72 @@ export const DepositDialog = () => {
     }
   }, [mode, open, defaultInputValue]);
 
-  // Composant pour l'icône principale (grande et décalée)
+  // Composant pour l'icône principale (inchangé)
   const MainActionIcon = ({ Icon, color }: { Icon: React.ElementType, color: string }) => (
-    // 🛑 LOGO PLUS GRAND (650px) et DÉCALÉ VERS LA DROITE (left-25%)
     <div className={`absolute top-1/2 -translate-y-1/2 -left-[25%] flex items-center justify-center h-full w-full`}>
       <Icon className={`w-[650px] h-[650px] ${color} opacity-30 z-0`} /> 
     </div>
   );
 
+  // 🛑 NOUVEAU GESTIONNAIRE D'INPUT (pour plafonner la saisie)
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+
+    // Autoriser la suppression (champ vide)
+    if (value === '') {
+      setAmount('');
+      return;
+    }
+
+    const numericValue = parseFloat(value);
+
+    if (isNaN(numericValue)) {
+      return; // Ne pas mettre à jour si ce n'est pas un nombre
+    }
+
+    // Plafonner la valeur saisie au maximum autorisé (au centime près)
+    if (numericValue > maxAmount) {
+      setAmount(maxAmount.toFixed(2));
+    } else {
+      setAmount(value);
+    }
+  };
+
   const handleTransaction = async () => {
-    if (!amount || Number(amount) <= 0) {
+    const numericAmount = Number(amount);
+
+    if (!amount || numericAmount <= 0) {
       toast({ title: 'Invalid amount', description: 'Please enter a valid amount', variant: 'destructive' });
       return;
+    }
+    
+    // 🛑 VÉRIFICATION FINALE (au cas où la valeur est invalide)
+    if (numericAmount > maxAmount) {
+        toast({
+            title: 'Insufficient Funds',
+            description: `You cannot ${mode} more than your available balance.`, // Notification en anglais
+            variant: 'destructive',
+        });
+        setLoading(false);
+        return;
     }
 
     setLoading(true);
     try {
       if (mode === 'deposit') {
         await deposit(amount);
-        toast({ title: 'Deposit successful', description: `Deposited $${amount}` });
       } else {
         await withdraw(amount);
-        toast({ title: 'Withdrawal successful', description: `Withdrew $${amount}` });
       }
+      toast({ title: `${mode} successful`, description: `${mode}ed $${amount}` });
       setAmount(defaultInputValue); 
       setOpen(false);
-      setTimeout(() => refetchAll(), 2000);
+      
+      setTimeout(() => {
+        refetchAll();
+        refetchBalances();
+      }, 2000); 
+
     } catch (error: any) {
       toast({ title: `${mode} failed`, description: error?.message || 'Transaction failed', variant: 'destructive' });
     } finally {
@@ -96,7 +144,7 @@ export const DepositDialog = () => {
         </Button>
       </DialogTrigger>
       
-      {/* Container de la modale: Fond BLANC par défaut */}
+      {/* Container de la modale */}
       <DialogContent className={`w-[650px] max-w-none p-0 shadow-xl rounded-lg min-h-[450px] overflow-hidden bg-white`}>
         
         {/* En-tête de contrôle: Boutons compacts à droite */}
@@ -118,16 +166,15 @@ export const DepositDialog = () => {
         </div>
 
 
-        {/* Corps principal : Disposition deux colonnes 42% (Foncé) et 58% (Blanc) */}
+        {/* Corps principal : Disposition deux colonnes */}
         <div className="relative flex h-full min-h-[450px]">
           
           {/* Section gauche (42%) : Icône principale, Fond plus foncé */}
           <div className={`w-[42%] p-8 relative ${currentDarkBgColor}`}>
             <MainActionIcon Icon={CurrentIconComponent} color={CurrentMainIconColor} />
             
-            {/* Espace vide intentionnel pour l'effet SVG */}
             <div className="relative z-10 text-base font-mono text-gray-800 space-y-2 mt-auto">
-              {/* Le contenu de cette section est vide sauf pour l'icône */}
+              {/* Contenu vide pour mettre en valeur l'icône */}
             </div>
 
           </div>
@@ -135,7 +182,7 @@ export const DepositDialog = () => {
           {/* Section droite (58%) : Balances, Input et Bouton (Fond BLANC) */}
           <div className="w-[58%] p-8 flex flex-col justify-between items-end space-y-8 bg-white">
             
-            {/* 1. Balances (Haut de la zone) - Taille de police réduite */}
+            {/* 1. Balances (Haut de la zone) */}
             <div className="w-full text-xs font-mono text-gray-800 space-y-1 pt-8">
                 <p className="flex justify-between items-center">
                     Wallet Balance: <span className="font-semibold text-foreground">${simulatedWalletBalance}</span>
@@ -160,12 +207,11 @@ export const DepositDialog = () => {
                 {/* Conteneur Input + Bouton collés */}
                 <div className="w-full flex space-x-0 items-center">
                     
-                    {/* Input du montant */}
+                    {/* Input du montant (Utilise le nouveau handler) */}
                     <Input
                         type="number"
                         value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                        // Coins arrondis SEULEMENT à gauche (supérieur et inférieur)
+                        onChange={handleAmountChange} // 🛑 GESTIONNAIRE DE SAISIE PLAFONNÉE
                         className="flex-grow h-10 text-base text-right bg-white border-gray-300 font-mono rounded-r-none"
                         step="0.01"
                     />
@@ -174,7 +220,6 @@ export const DepositDialog = () => {
                     <Button
                         onClick={handleTransaction}
                         disabled={loading || !amount}
-                        // Coins arrondis SEULEMENT à droite (supérieur et inférieur)
                         className={`h-10 px-4 text-base font-semibold ${currentActionColorClass} flex items-center rounded-l-none`}
                     >
                         {loading ? '...' : (

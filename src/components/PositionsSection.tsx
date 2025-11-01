@@ -16,7 +16,6 @@ const PositionsSection = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState<any>(null);
   const { positions, orders, closedPositions, cancelledOrders, refetch } = usePositions();
-  // Les fonctions closePosition et cancelOrder sont déjà importées depuis useTrading
   const { cancelOrder, updateStops, closePosition } = useTrading(); 
   const { toast } = useToast();
   
@@ -24,33 +23,53 @@ const PositionsSection = () => {
   const { data: wsData } = useWebSocket();
   const { configs: assetConfigs, convertLotsToDisplay } = useAssetConfig(); 
 
-  const allAssets = useMemo(() => getAssetsByCategory(wsData).crypto.concat(
-    getAssetsByCategory(wsData).forex,
-    getAssetsByCategory(wsData).commodities,
-    getAssetsByCategory(wsData).stocks,
-    getAssetsByCategory(wsData).indices
-  ), [wsData]);
+  // Carte pour lier Asset ID aux symboles et décimales du trading
+  const assetSymbolMap = useMemo(() => {
+    return assetConfigs.reduce((map, config) => {
+        // Déterminer le nombre de décimales basé sur tick_size_usd6 (10^6 / tickSizeX6)
+        const powerOfTen = Math.round(Math.log10(1000000 / config.tick_size_usd6)); 
+        const decimals = Math.max(0, powerOfTen);
 
-  // Carte pour lier Asset ID à la paire et au prix actuel
+        map[config.asset_id] = { 
+            symbol: `${config.symbol}/USD`, // Affichage conventionnel
+            baseSymbol: config.symbol,     // Le symbole de base (BTC, ETH, etc.)
+            priceDecimals: decimals,
+        };
+        return map;
+    }, {} as { [id: number]: { symbol: string; baseSymbol: string; priceDecimals: number } });
+  }, [assetConfigs]);
+
+
+  // Carte pour lier Asset ID à la paire et au prix actuel du WS
   const assetMap = useMemo(() => {
+    const allAssets = getAssetsByCategory(wsData).crypto.concat(
+        getAssetsByCategory(wsData).forex,
+        getAssetsByCategory(wsData).commodities,
+        getAssetsByCategory(wsData).stocks,
+        getAssetsByCategory(wsData).indices
+    );
     return allAssets.reduce((map, asset) => {
       const currentPrice = wsData[asset.pair]?.instruments[0]?.currentPrice;
       map[asset.id] = { 
-        symbol: asset.symbol, 
         currentPrice: currentPrice ? parseFloat(currentPrice) : null,
         pair: asset.pair,
       };
       return map;
-    }, {} as { [id: number]: { symbol: string; currentPrice: number | null; pair: string } });
-  }, [allAssets, wsData]);
+    }, {} as { [id: number]: { currentPrice: number | null; pair: string } });
+  }, [wsData]);
 
 
   // Fonctions d'aide
-  const formatPrice = (value: number) => {
-    return (value / 1000000).toFixed(2);
+  // 🛑 formatPrice utilise maintenant les décimales dynamiques
+  const formatPrice = (valueX6: number, assetId: number) => {
+    const assetInfo = assetSymbolMap[assetId];
+    if (!assetInfo || valueX6 === 0) return "0.00";
+    
+    const value = valueX6 / 1000000;
+    return value.toFixed(assetInfo.priceDecimals);
   };
   
-  // Fonction pour formater le Size (lots * lot_num / lot_den)
+  // Fonction pour formater le Size (inchangée)
   const formatLotSize = (lots: number, assetId: number) => {
     const size = convertLotsToDisplay(lots, assetId);
     return size.toFixed(2); 
@@ -85,44 +104,46 @@ const PositionsSection = () => {
   
   // Fonction pour ajouter le prix actuel, le P&L et la taille de position
   const enrichPosition = (position: any) => {
-    const assetInfo = assetMap[position.asset_id];
+    const assetWsInfo = assetMap[position.asset_id];
+    const assetSymbolInfo = assetSymbolMap[position.asset_id];
     
-    if (!assetInfo) {
+    if (!assetSymbolInfo) {
       return {
         ...position,
-        assetSymbol: 'N/A',
+        assetSymbol: `ID ${position.asset_id} N/A`,
         currentPrice: 'N/A',
         calculatedPNL: null,
         calculatedROE: null,
       };
     }
     
-    const { pnl, roe } = calculatePNL(position, assetInfo.currentPrice);
+    const currentPriceFloat = assetWsInfo?.currentPrice || null;
+    const { pnl, roe } = calculatePNL(position, currentPriceFloat);
 
     return {
       ...position,
-      assetSymbol: assetInfo.symbol,
-      currentPrice: assetInfo.currentPrice ? formatPrice(assetInfo.currentPrice * 1000000) : 'Loading...',
-      marketPriceValue: assetInfo.currentPrice, // Valeur brute
+      // 🛑 Utilisation du symbole réel
+      assetSymbol: assetSymbolInfo.symbol, 
+      // Formatage du prix courant pour affichage
+      currentPrice: currentPriceFloat ? currentPriceFloat.toFixed(assetSymbolInfo.priceDecimals) : 'Loading...',
+      marketPriceValue: currentPriceFloat, 
       calculatedPNL: pnl,
       calculatedROE: roe,
       size: formatLotSize(position.lots, position.asset_id),
+      priceDecimals: assetSymbolInfo.priceDecimals, // Pour les helpers
     };
   };
 
   // Ajout des données en temps réel aux positions ouvertes
-  const enrichedPositions = useMemo(() => positions.map(enrichPosition), [positions, assetMap, assetConfigs]);
-  const enrichedOrders = useMemo(() => orders.map(enrichPosition), [orders, assetMap, assetConfigs]);
+  const enrichedPositions = useMemo(() => positions.map(enrichPosition), [positions, assetMap, assetSymbolMap]);
+  const enrichedOrders = useMemo(() => orders.map(enrichPosition), [orders, assetMap, assetSymbolMap]);
   const enrichedClosedPositions = useMemo(() => closedPositions.map(enrichPosition), [closedPositions, assetMap]);
   const enrichedCancelledOrders = useMemo(() => cancelledOrders.map(enrichPosition), [cancelledOrders, assetMap]);
 
 
-  // --- Logique des handlers ---
-  
-  // 🛑 HANDLER POUR ANNULER UN ORDRE (APPEL À cancel(id) SC)
+  // --- Logique des handlers (inchangée) ---
   const handleCancelOrder = async (id: number) => { 
     try {
-      // closePosition(id) est appelé par le hook useTrading avec l'ID de la position (uint32)
       await cancelOrder(id); 
       toast({
         title: "Order cancelled",
@@ -138,10 +159,8 @@ const PositionsSection = () => {
     }
   };
   
-  // 🛑 HANDLER POUR FERMER UNE POSITION (APPEL À closeMarket(id) SC)
   const handleClosePosition = async (id: number) => { 
     try {
-      // closePosition(id) est appelé par le hook useTrading avec l'ID de la position (uint32)
       await closePosition(id); 
       toast({
         title: "Position closed",
@@ -264,6 +283,7 @@ const PositionsSection = () => {
                   return (
                     <tr key={position.id} className="hover:bg-hover-bg transition duration-100">
                       <td className="pl-4 pr-3 py-2 whitespace-nowrap text-sm font-semibold">
+                        {/* 🛑 Symbole dynamique */}
                         {position.assetSymbol || 'N/A'}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-xs text-light-text">
@@ -278,24 +298,25 @@ const PositionsSection = () => {
                         {position.size}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm">
-                        ${formatPrice(position.margin_usd6)}
+                        ${formatPrice(position.margin_usd6, position.asset_id)}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm font-semibold">
-                        {formatPrice(position.entry_x6)}
+                        {/* 🛑 Formatage dynamique du prix d'entrée */}
+                        {formatPrice(position.entry_x6, position.asset_id)}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-sm font-semibold">
                         {position.currentPrice}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-xs text-light-text">
-                        {position.liq_x6 ? formatPrice(position.liq_x6) : 'N/A'}
+                        {position.liq_x6 ? formatPrice(position.liq_x6, position.asset_id) : 'N/A'}
                       </td>
                       <td className={`px-3 py-2 whitespace-nowrap text-sm font-bold ${isPNLPositive ? 'text-trading-blue' : 'text-trading-red'}`}>
                         {pnlText}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-xs text-light-text">
-                        TP: {position.tp_x6 ? formatPrice(position.tp_x6) : 'N/A'}
+                        TP: {position.tp_x6 ? formatPrice(position.tp_x6, position.asset_id) : 'N/A'}
                         <br />
-                        SL: {position.sl_x6 ? formatPrice(position.sl_x6) : 'N/A'}
+                        SL: {position.sl_x6 ? formatPrice(position.sl_x6, position.asset_id) : 'N/A'}
                       </td>
                       <td className="pr-4 pl-3 py-2 whitespace-nowrap text-right text-sm font-medium space-x-2">
                         <button 
@@ -305,7 +326,6 @@ const PositionsSection = () => {
                           Edit TP/SL
                         </button>
                         <Button
-                          // 🛑 Appel au handler pour fermer la position (closeMarket)
                           onClick={() => handleClosePosition(position.id)}
                           size="sm"
                           className="bg-trading-red/10 text-trading-red hover:bg-trading-red/20 text-xs font-semibold"
@@ -360,6 +380,7 @@ const PositionsSection = () => {
                 {enrichedOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-hover-bg transition duration-100">
                     <td className="pl-4 pr-3 py-2 whitespace-nowrap text-sm font-semibold">
+                      {/* 🛑 Symbole dynamique */}
                       {order.assetSymbol || 'N/A'}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-xs text-light-text">
@@ -377,19 +398,19 @@ const PositionsSection = () => {
                       {order.currentPrice}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm">
-                      {formatPrice(order.target_x6)}
+                      {/* 🛑 Formatage dynamique du prix limite */}
+                      {formatPrice(order.target_x6, order.asset_id)}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm">
-                      ${formatPrice(order.margin_usd6)}
+                      ${formatPrice(order.margin_usd6, order.asset_id)}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-xs text-light-text">
-                      TP: {order.tp_x6 ? formatPrice(order.tp_x6) : 'N/A'}
+                      TP: {order.tp_x6 ? formatPrice(order.tp_x6, order.asset_id) : 'N/A'}
                       <br />
-                      SL: {order.sl_x6 ? formatPrice(order.sl_x6) : 'N/A'}
+                      SL: {order.sl_x6 ? formatPrice(order.sl_x6, order.asset_id) : 'N/A'}
                     </td>
                     <td className="pr-4 pl-3 py-2 whitespace-nowrap text-right text-sm font-medium">
                       <Button
-                        // 🛑 Appel au handler pour annuler l'ordre (cancel)
                         onClick={() => handleCancelOrder(order.id)} 
                         variant="secondary"
                         size="sm"
@@ -405,7 +426,7 @@ const PositionsSection = () => {
           </div>
         )}
 
-        {/* Closed Positions (inchangé) */}
+        {/* Closed Positions */}
         {activeTab === "closedPositions" && (
           <div className="h-full overflow-y-auto">
             <table className="min-w-full divide-y divide-border">
@@ -438,6 +459,7 @@ const PositionsSection = () => {
                   return (
                     <tr key={position.id} className="hover:bg-hover-bg transition duration-100">
                       <td className="pl-4 pr-3 py-2 whitespace-nowrap text-sm font-semibold">
+                        {/* 🛑 Symbole dynamique */}
                         {position.assetSymbol || 'N/A'}
                       </td>
                       <td className="px-3 py-2 whitespace-nowrap text-xs text-light-text">
@@ -450,10 +472,10 @@ const PositionsSection = () => {
                         {position.long_side ? "Long" : "Short"} / {position.leverage_x}x
                       </td>
                       <td className={`px-3 py-2 whitespace-nowrap text-sm font-bold ${isPNLPositive ? 'text-trading-blue' : 'text-trading-red'}`}>
-                        {position.pnl_usd6 ? `$${formatPrice(position.pnl_usd6)}` : '-'}
+                        {position.pnl_usd6 ? `$${formatPrice(position.pnl_usd6, position.asset_id)}` : '-'}
                       </td>
                       <td className="pr-4 pl-3 py-2 whitespace-nowrap text-sm">
-                        ${formatPrice(position.margin_usd6)}
+                        ${formatPrice(position.margin_usd6, position.asset_id)}
                       </td>
                     </tr>
                   );
@@ -463,7 +485,7 @@ const PositionsSection = () => {
           </div>
         )}
 
-        {/* Cancelled Orders (inchangé) */}
+        {/* Cancelled Orders */}
         {activeTab === "cancelledOrders" && (
           <div className="h-full overflow-y-auto">
             <table className="min-w-full divide-y divide-border">
@@ -493,6 +515,7 @@ const PositionsSection = () => {
                 {enrichedCancelledOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-hover-bg transition duration-100">
                     <td className="pl-4 pr-3 py-2 whitespace-nowrap text-sm font-semibold">
+                      {/* 🛑 Symbole dynamique */}
                       {order.assetSymbol || 'N/A'}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-xs text-light-text">
@@ -507,10 +530,10 @@ const PositionsSection = () => {
                       </span>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm">
-                      {formatPrice(order.target_x6)}
+                      {formatPrice(order.target_x6, order.asset_id)}
                     </td>
                     <td className="pr-4 pl-3 py-2 whitespace-nowrap text-sm">
-                      ${formatPrice(order.margin_usd6)}
+                      ${formatPrice(order.margin_usd6, order.asset_id)}
                     </td>
                   </tr>
                 ))}

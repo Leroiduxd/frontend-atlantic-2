@@ -4,11 +4,12 @@ import {
     useReadContract, 
     useSimulateContract, 
     useWriteContract, 
-    useWaitForTransactionReceipt, 
     useBalance,
-    useConfig
+    useConfig,
+    usePublicClient // 🛑 IMPORT NÉCESSAIRE
 } from 'wagmi';
 import { parseUnits, formatUnits, maxUint256 } from 'viem'; 
+import { useQueryClient } from '@tanstack/react-query'; // 🛑 IMPORT NÉCESSAIRE
 
 // --- ADRESSES ET ABIs ---
 const FAUCET_ADDRESS = '0x68c8eb31fbf00d4d37904ad76d68e78763429700';
@@ -29,20 +30,23 @@ const ERC20_ABI = [
 
 // Constante pour le délai de re-fetch et le seuil d'approbation
 const REFETCH_DELAY_MS = 5000;
-const SUFFICIENT_APPROVAL_THRESHOLD = parseUnits('10000', 6); // 10,000 unités TUSD * 10^6 (si 6 décimales)
+const SUFFICIENT_APPROVAL_THRESHOLD = parseUnits('10000', 6); 
 
 
 export const useFaucet = () => {
   const { address, isConnected } = useAccount();
   const { writeContractAsync } = useWriteContract();
-  const config = useConfig();
+  
+  // 🛑 CORRECTION : Utiliser les hooks dédiés pour les clients
+  const publicClient = usePublicClient();
+  const queryClient = useQueryClient();
 
   // --- Helpers ---
   const refetch = useCallback(() => {
-    if (!config || !address) return;
-    // Invalider toutes les requêtes pour forcer le re-fetch des données lues
-    config.queryClient.invalidateQueries();
-  }, [config, address]);
+    if (!queryClient || !address) return;
+    // 🛑 CORRECTION : Utiliser l'instance de queryClient
+    queryClient.invalidateQueries();
+  }, [queryClient, address]);
 
   const readQueryOptions = useMemo(() => ({
     enabled: isConnected && !!address,
@@ -79,7 +83,7 @@ export const useFaucet = () => {
     address: ERC20_TOKEN_ADDRESS,
     abi: ERC20_ABI,
     functionName: 'allowance',
-    args: [address as `0x${string}`, VAULT_ADDRESS as `0x${string}`],
+    args: [address as `0x${string}`, VAULT_ADDRESS],
     query: readQueryOptions,
   });
   
@@ -112,7 +116,10 @@ export const useFaucet = () => {
     try {
         const hash = await writeContractAsync(claimSimulate.request);
         
-        await config.publicClient.waitForTransactionReceipt({ hash });
+        // 🛑 CORRECTION : Utiliser l'instance de publicClient
+        if (publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash });
+        }
         
         // Délai de 5 secondes après confirmation pour le re-fetch
         await new Promise(resolve => setTimeout(resolve, REFETCH_DELAY_MS));
@@ -121,7 +128,7 @@ export const useFaucet = () => {
     } finally {
         setIsClaiming(false);
     }
-  }, [claimSimulate?.request, writeContractAsync, refetch, config.publicClient]);
+  }, [claimSimulate?.request, writeContractAsync, refetch, publicClient]);
 
 
   // --- Logique d'Écriture : APPROVE (Infinie) ---
@@ -131,7 +138,7 @@ export const useFaucet = () => {
     address: ERC20_TOKEN_ADDRESS,
     abi: ERC20_ABI,
     functionName: 'approve',
-    args: [VAULT_ADDRESS as `0x${string}`, infiniteApprovalAmount],
+    args: [VAULT_ADDRESS, infiniteApprovalAmount],
     account: address,
     query: {
         enabled: isConnected && !isApproved,
@@ -149,7 +156,10 @@ export const useFaucet = () => {
     try {
         const hash = await writeContractAsync(approveSimulate.request);
         
-        await config.publicClient.waitForTransactionReceipt({ hash });
+        // 🛑 CORRECTION : Utiliser l'instance de publicClient
+        if (publicClient) {
+          await publicClient.waitForTransactionReceipt({ hash });
+        }
 
         // Délai de 5 secondes après confirmation pour le re-fetch
         await new Promise(resolve => setTimeout(resolve, REFETCH_DELAY_MS));
@@ -158,7 +168,7 @@ export const useFaucet = () => {
     } finally {
         setIsApproving(false);
     }
-  }, [approveSimulate?.request, writeContractAsync, refetch, config.publicClient, isApproved]);
+  }, [approveSimulate?.request, writeContractAsync, refetch, publicClient, isApproved]);
 
 
   return {

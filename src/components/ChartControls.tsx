@@ -38,22 +38,36 @@ const TIMEFRAMES = [
   { value: "86400", label: "1D" },
 ];
 
-export const ChartControls = ({
-  selectedAsset,
-  onAssetChange,
-  selectedTimeframe,
-  onTimeframeChange,
-  priceChange,
-  priceChangePercent,
-  currentPrice,
-}: ChartControlsProps) => {
+export const ChartControls = (props: ChartControlsProps) => {
+  const { 
+    selectedAsset, 
+    onAssetChange, 
+    selectedTimeframe, 
+    onTimeframeChange, 
+    priceChange, 
+    priceChangePercent, 
+    currentPrice 
+  } = props;
+  
   const { data: wsData } = useWebSocket();
   const categories = getAssetsByCategory(wsData);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  const handleAssetChange = (asset: Asset) => {
-    onAssetChange(asset);
+  const handleAssetChange = (asset: any) => {
+    // CORRECTION: Normalisation pour s'assurer que l'ID est un nombre valide
+    const normalizedId = Number(asset.id);
+
+    const normalizedAsset: Asset = {
+        id: Number.isFinite(normalizedId) ? normalizedId : 0,
+        name: asset.name,
+        symbol: asset.symbol,
+        pair: asset.pair,
+        currentPrice: asset.currentPrice,
+        change24h: asset.change24h,
+    };
+
+    onAssetChange(normalizedAsset);
     setIsDialogOpen(false);
   };
 
@@ -69,7 +83,7 @@ export const ChartControls = ({
 
   return (
     <div className="absolute bottom-0 left-0 right-0 h-12 bg-chart-bg border-t border-border flex items-center justify-between px-4 gap-4">
-      {/* Asset Selector - UTILISE MAINTENANT DIALOG */}
+      {/* Asset Selector */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogTrigger asChild>
           <Button
@@ -81,7 +95,6 @@ export const ChartControls = ({
           </Button>
         </DialogTrigger>
         
-        {/* MODIFICATION ICI : Ajout de 'overflow-hidden' au DialogContent */}
         <DialogContent className="w-[600px] h-[500px] max-w-none p-0 bg-background z-50 overflow-hidden flex flex-col">
           <Tabs defaultValue="crypto" className="w-full h-full flex flex-col">
             <TabsList className="w-full grid grid-cols-5 rounded-none border-b flex-shrink-0">
@@ -91,8 +104,9 @@ export const ChartControls = ({
               <TabsTrigger value="stocks" className="text-xs">Stocks</TabsTrigger>
               <TabsTrigger value="indices" className="text-xs">Indices</TabsTrigger>
             </TabsList>
-            {/* ScrollArea a déjà 'flex-1' donc il prendra l'espace restant */}
+            
             <ScrollArea className="flex-1">
+              {/* Crypto Tab */}
               <TabsContent value="crypto" className="m-0 p-2">
                 <div className="space-y-1">
                   {categories.crypto.length > 0 ? (
@@ -120,7 +134,8 @@ export const ChartControls = ({
                   )}
                 </div>
               </TabsContent>
-              {/* FOREX TabContent */}
+              
+              {/* 🛑 AJOUT : Forex Tab */}
               <TabsContent value="forex" className="m-0 p-2">
                 <div className="space-y-1">
                   {categories.forex.length > 0 ? (
@@ -149,7 +164,7 @@ export const ChartControls = ({
                 </div>
               </TabsContent>
 
-              {/* COMMODITIES TabContent */}
+              {/* 🛑 AJOUT : Commodities Tab */}
               <TabsContent value="commodities" className="m-0 p-2">
                 <div className="space-y-1">
                   {categories.commodities.length > 0 ? (
@@ -178,7 +193,7 @@ export const ChartControls = ({
                 </div>
               </TabsContent>
 
-              {/* STOCKS TabContent */}
+              {/* 🛑 AJOUT : Stocks Tab */}
               <TabsContent value="stocks" className="m-0 p-2">
                 <div className="space-y-1">
                   {categories.stocks.length > 0 ? (
@@ -207,7 +222,7 @@ export const ChartControls = ({
                 </div>
               </TabsContent>
               
-              {/* INDICES TabContent */}
+              {/* 🛑 AJOUT : Indices Tab */}
               <TabsContent value="indices" className="m-0 p-2">
                 <div className="space-y-1">
                   {categories.indices.length > 0 ? (
