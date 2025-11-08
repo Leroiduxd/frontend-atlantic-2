@@ -2,6 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+
 /* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
 All colors MUST be HSL.
 */
@@ -91,4 +92,53 @@ All colors MUST be HSL.
     scroll-snap-align: start;
     min-height: 100vh;
   }
+}
+
+.typing-effect {
+  width: 0;
+  overflow: hidden; /* Assure que le texte est caché jusqu'à ce que la largeur augmente */
+  white-space: nowrap; /* Empêche le texte de sauter à la ligne */
+  margin: 0 auto; /* Centre l'effet */
+  letter-spacing: .15em; 
+  border-right: .15em solid orange; /* Le curseur de frappe */
+  animation: 
+    typing 4s steps(40, end) 0.5s 1 forwards, /* 4s pour taper, 40 étapes, 0.5s de délai */
+    blink .75s step-end infinite;
+}
+
+/* Keyframes pour l'effet de frappe */
+@keyframes typing {
+  from { width: 0 }
+  to { width: 100% }
+}
+
+/* Keyframes pour le curseur qui clignote */
+@keyframes blink {
+  from, to { border-color: transparent }
+  50% { border-color: orange; }
+}
+
+/* * Animation pour le fondu enchaîné (fade-in-out)
+ * 3s = 1s fondu entrant, 1s visible, 1s fondu sortant
+*/
+.animate-fade-in-out {
+  animation: fadeInOut 3s ease-in-out 1 forwards;
+}
+
+@keyframes fadeInOut {
+  0% { opacity: 0; transform: translateY(10px); }
+  33% { opacity: 1; transform: translateY(0); }
+  66% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-10px); }
+}
+
+/* * Animation de fondu simple (pour l'étape 6)
+*/
+.animate-fade-in {
+  animation: fadeIn 1s ease-in 1 forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

@@ -7,13 +7,16 @@ import { useToast } from "@/hooks/use-toast";
 import { DepositDialog } from "./DepositDialog";
 import { Asset } from "./ChartControls";
 import { useAssetConfig } from "@/hooks/useAssetConfig";
-// Wagmi/Viem Imports pour la transaction manuelle
-import { useAccount, useSimulateContract, useWriteContract, useConfig } from 'wagmi'; 
+// Wagmi/Viem Imports
+import { useWriteContract, useConfig } from 'wagmi'; 
 import { Landmark, Send } from "lucide-react"; 
 import { ChevronUp, ChevronDown } from "lucide-react"; 
+import { Hash } from 'viem'; // Importation du type Hash de viem
 
-// --- ABI du Contrat Trading (intégré pour le débogage) ---
-const TRADING_ADDRESS = '0x04a7cdf3b3aff0a0f84a94c48095d84baa91ec11' as const;
+// --- CONSTANTES GLOBALES (Assurez-vous que celles-ci sont correctement importées ou déclarées) ---
+const VAULT_ADDRESS = '0x19e9e0c71b672aaaadee26532da80d330399fa11' as const;
+const TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b' as const;
+const TRADING_ADDRESS = '0xb449fd01fa7937d146e867b995c261e33c619292' as const;
 const TRADING_ABI = [
   {
     inputs: [
@@ -21,16 +24,30 @@ const TRADING_ABI = [
       { internalType: 'bool', name: 'longSide', type: 'bool' },
       { internalType: 'uint16', name: 'leverageX', type: 'uint16' },
       { internalType: 'uint16', name: 'lots', type: 'uint16' },
-      { internalType: 'bool', name: 'isLimit', type: 'bool' },
-      { internalType: 'int64', name: 'priceX6', type: 'int64' },
+      { internalType: 'int64', name: 'targetX6', type: 'int64' },
       { internalType: 'int64', name: 'slX6', type: 'int64' },
       { internalType: 'int64', name: 'tpX6', type: 'int64' },
     ],
-    name: 'open',
+    name: 'openLimit',
     outputs: [{ internalType: 'uint32', name: 'id', type: 'uint32' }],
     stateMutability: 'nonpayable',
     type: 'function',
   },
+  {
+    inputs: [
+      { internalType: 'bytes', name: 'proof', type: 'bytes' },
+      { internalType: 'uint32', name: 'assetId', type: 'uint32' },
+      { internalType: 'bool', name: 'longSide', type: 'bool' },
+      { internalType: 'uint16', name: 'leverageX', type: 'uint16' },
+      { internalType: 'uint16', name: 'lots', type: 'uint16' },
+      { internalType: 'int64', name: 'slX6', type: 'int64' },
+      { internalType: 'int64', name: 'tpX6', type: 'int64' },
+    ],
+    name: 'openMarket',
+    outputs: [{ internalType: 'uint32', name: 'id', type: 'uint32' }],
+    stateMutability: 'nonpayable',
+    type: 'function'
+  }
 ] as const;
 // ---------------------------------------------------
 
@@ -39,7 +56,7 @@ const TRADING_ABI = [
 // ====================================================================
 interface StepControllerProps {
     value: string | number;
-    onChange: (value: number) => void;
+    onChange: (value: any) => void;
     step: number;
     min?: number;
     max?: number;
@@ -56,20 +73,17 @@ const StepController: React.FC<StepControllerProps> = ({
         onChange(Number(newValue.toFixed(decimals)));
     };
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = Number(e.target.value);
-        if (!isNaN(val)) {
-            onChange(val); 
-        }
+        const val = e.target.value; 
+        onChange(val); 
     };
     return (
         <div className="relative flex items-center">
             <Input
-                type="number"
+                type="text" 
                 placeholder="0.00"
                 value={value}
                 onChange={handleInputChange}
                 className={`w-full text-lg font-medium pr-10`} 
-                step={step} min={min} max={max}
             />
             <div className="absolute right-0 top-0 h-full flex flex-col justify-center border-l border-border">
                 <Button variant="ghost" size="icon" className="h-1/2 w-8 p-0 border-b border-border/80 rounded-none rounded-tr-sm" onClick={() => handleStep(step)}>
@@ -92,6 +106,26 @@ interface OrderPanelProps {
   currentPrice: number;
 }
 
+// 🛑 FONCTION UTILITAIRE : Récupérer la Preuve (plus robuste)
+const getMarketProof = async (assetId: number): Promise<Hash> => {
+    const url = `https://proof.brokex.trade/proof?pairs=${assetId}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch proof for asset ${assetId}. Status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const proof = data.proof as string;
+
+    if (!proof || proof.length <= 2 || !proof.startsWith('0x')) {
+         throw new Error("Invalid proof received from API.");
+    }
+
+    // Retourne le type Hash de viem qui est `0x${string}`
+    return proof as Hash; 
+};
+
 const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const [orderType, setOrderType] = useState<OrderType>("limit");
   const [tpEnabled, setTpEnabled] = useState(false);
@@ -103,12 +137,10 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const [slPrice, setSlPrice] = useState('');
   const [loading, setLoading] = useState(false);
   
-  // 🛑 Récupération de 'available' (solde disponible)
-  const { balance, available, locked, refetchAll, tokenBalance } = useVault(); 
+  const { balance, available, locked, refetchAll } = useVault(); 
   const { toast } = useToast();
   const { getConfigById, convertDisplayToLots } = useAssetConfig(); 
   
-  // Hooks Wagmi pour la transaction manuelle
   const { writeContractAsync } = useWriteContract();
   const config = useConfig();
   const publicClient = config.publicClient; 
@@ -120,6 +152,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const assetConfig = getConfigById(finalAssetIdForTx); 
 
   const { minLotSizeDisplay, lotStep, priceDecimals, priceStep } = useMemo(() => {
+    // Logique de calcul du lotStep et priceStep
     const num = assetConfig?.lot_num || 1;
     const den = assetConfig?.lot_den || 100;
     const lotSize = num / den;
@@ -142,128 +175,160 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   useEffect(() => {
     setLotsDisplay(minLotSizeDisplay); 
     if (currentPrice > 0 && selectedAsset.id) {
-      setLimitPrice(currentPrice.toFixed(priceDecimals));
+        // Mise à jour de limitPrice uniquement si on est sur Limit au montage
+        if (orderType === 'limit') {
+            setLimitPrice(currentPrice.toFixed(priceDecimals));
+        }
     }
-  }, [selectedAsset.id, currentPrice, minLotSizeDisplay, priceDecimals]); 
+  }, [selectedAsset.id, currentPrice, minLotSizeDisplay, priceDecimals, orderType]); 
 
   
   const handleLotsChange = (value: number) => {
     setLotsDisplay(value);
   };
   
-  // Calculs (inchangés)
   const calculations = useMemo(() => {
+    // Utiliser le prix actuel si ordre Market
     const price = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
+    
+    // Si le prix n'est pas valide (ex: initialisation), éviter les calculs
+    if (isNaN(price) || price <= 0 || lotsDisplay <= 0) {
+        return { value: 0, cost: 0, liqPriceLong: 0, liqPriceShort: 0 };
+    }
+
     const displayNotional = lotsDisplay * price; 
     
+    // La liq price est calculée par rapport au prix d'entrée
     const liqPriceLong = price * (1 - 0.99 / leverage);
-    const liqPriceShort = price * (1 + 1/ leverage);
+    const liqPriceShort = price * (1 + 0.99 / leverage); // Correction de la formule de liq short
 
     return {
       value: displayNotional,
-      cost: displayNotional / leverage, // Marge nécessaire (coût)
+      cost: displayNotional / leverage, 
       liqPriceLong,
       liqPriceShort,
     };
-  }, [lotsDisplay, leverage, limitPrice, currentPrice, orderType, selectedAsset.id, getConfigById, convertDisplayToLots]);
+  }, [lotsDisplay, leverage, limitPrice, currentPrice, orderType, priceDecimals]);
 
   const formatPrice = (value: number) => {
     if (value === 0) return "0.00";
-    const integerPart = Math.floor(Math.abs(value)).toString().length;
-    if (integerPart === 1) return value.toFixed(5);
-    if (integerPart === 2) return value.toFixed(3);
-    return value.toFixed(2);
+    return value.toFixed(priceDecimals > 5 ? 5 : priceDecimals || 2); 
   };
 
 
   const handleTrade = async (longSide: boolean) => {
     
-    // 1. VÉRIFICATION CRITIQUE DE L'ACTIF
+    // --- 1. VÉRIFICATIONS CRITIQUES ---
     if (finalAssetIdForTx === 0) {
-        return toast({
-            title: 'Erreur de Configuration',
-            description: `Veuillez sélectionner une paire valide.`,
-            variant: "destructive",
-        });
+        return toast({ title: 'Erreur de Configuration', description: `Veuillez sélectionner une paire valide.`, variant: "destructive", });
+    }
+    
+    const numLimitPrice = Number(limitPrice);
+    const numSlPrice = Number(slPrice);
+    const numTpPrice = Number(tpPrice);
+    
+    if (orderType === 'limit' && (isNaN(numLimitPrice) || numLimitPrice <= 0)) {
+        return toast({ title: 'Erreur de Saisie', description: 'Veuillez saisir un Prix Limite valide.', variant: "destructive" });
+    }
+    // Validation du lot
+    if (lotsDisplay < minLotSizeDisplay) {
+        return toast({ title: 'Erreur de Saisie', description: `Le montant minimum est ${minLotSizeDisplay}.`, variant: "destructive" });
     }
 
-    // 🛑 2. NOUVELLE VÉRIFICATION : SOLDE DISPONIBLE
+    // VÉRIFICATION : SOLDE DISPONIBLE
     const requiredMargin = calculations.cost;
-    const requiredMarginWithBuffer = requiredMargin * 1.05; // Marge + 5%
-    const availableBalance = Number(available); // S'assurer que 'available' est un nombre
+    const requiredMarginWithBuffer = requiredMargin * 1.01; // Marge + 1%
+    const availableBalance = Number(available); 
 
     if (availableBalance < requiredMarginWithBuffer) {
         return toast({
-            title: 'Insufficient balance',
-            description: `Insufficient available balance to cover the position's cost (margin) (Estimated Cost: $${formatPrice(requiredMarginWithBuffer)}).`,
+            title: 'Solde Insuffisant',
+            description: `Marge requise: $${formatPrice(requiredMarginWithBuffer)}. Disponible: $${availableBalance}.`,
             variant: "destructive",
         });
     }
 
-    // 3. VALIDATION SL/TP
-    const entryPrice = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
-    const price = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
-    const liqPrice = longSide ? price * (1 - 0.99 / leverage) : price * (1 + 0.99 / leverage);
+    // 2. VALIDATION SL/TP
+    const entryPrice = orderType === 'limit' ? numLimitPrice : currentPrice;
+    const liqPrice = longSide 
+        ? entryPrice * (1 - 0.99 / leverage) 
+        : entryPrice * (1 + 0.99 / leverage);
+
+    if (slEnabled && (isNaN(numSlPrice) || numSlPrice <= 0)) {
+        return toast({ title: 'Erreur de Saisie', description: 'Veuillez saisir un Prix Stop Loss valide.', variant: "destructive" });
+    }
+    if (tpEnabled && (isNaN(numTpPrice) || numTpPrice <= 0)) {
+        return toast({ title: 'Erreur de Saisie', description: 'Veuillez saisir un Prix Take Profit valide.', variant: "destructive" });
+    }
 
     if (slEnabled) {
-      const sl = Number(slPrice);
-      if ((longSide && sl <= liqPrice) || (!longSide && sl >= liqPrice)) {
-        return toast({
-          title: 'Validation Error',
-          description: `Stop Loss must be safer than the Estimated Liquidation Price (${formatPrice(liqPrice)})`,
-          variant: "destructive",
-        });
+      if ((longSide && numSlPrice <= liqPrice) || (!longSide && numSlPrice >= liqPrice)) {
+        return toast({ title: 'Validation Error', description: `SL doit être plus sécuritaire que le Prix de Liq. Estimé (${formatPrice(liqPrice)})`, variant: "destructive" });
       }
-      if ((longSide && sl >= entryPrice) || (!longSide && sl <= entryPrice)) {
-        return toast({
-          title: 'Validation Error',
-          description: `Stop Loss must be below Entry Price for Long or above for Short.`,
-          variant: "destructive",
-        });
+      if ((longSide && numSlPrice >= entryPrice) || (!longSide && numSlPrice <= entryPrice)) {
+        return toast({ title: 'Validation Error', description: `SL doit être sous le prix d'entrée pour Long ou au-dessus pour Short.`, variant: "destructive" });
       }
     }
 
     if (tpEnabled) {
-      const tp = Number(tpPrice);
-      if ((longSide && tp <= entryPrice) || (!longSide && tp >= entryPrice)) {
-        return toast({
-          title: 'Validation Error',
-          description: `Take Profit must be above Entry Price for Long or below for Short.`,
-          variant: "destructive",
-        });
+      if ((longSide && numTpPrice <= entryPrice) || (!longSide && numTpPrice >= entryPrice)) {
+        return toast({ title: 'Validation Error', description: `TP doit être au-dessus du prix d'entrée pour Long ou en-dessous pour Short.`, variant: "destructive" });
       }
     }
     // FIN VALIDATION
 
 
     setLoading(true);
-    try {
-      const isLimit = orderType === 'limit';
-      const priceX6 = isLimit && limitPrice ? Math.round(Number(limitPrice) * 1000000) : 0;
-      const slX6 = slEnabled && slPrice ? Math.round(Number(slPrice) * 1000000) : 0;
-      const tpX6 = tpEnabled && tpPrice ? Math.round(Number(tpPrice) * 1000000) : 0;
-      
-      const actualLots = convertDisplayToLots(lotsDisplay, finalAssetIdForTx);
+    let txHash: Hash | undefined; // Déclaration de txHash avec le type Hash de viem
 
-      // 4. ENVOI DE LA TRANSACTION
-      const txHash = await writeContractAsync({ 
-        address: TRADING_ADDRESS,
-        abi: TRADING_ABI,
-        functionName: 'open',
-        args: [
-            finalAssetIdForTx, 
-            longSide,
-            leverage,
-            actualLots,
-            isLimit,
-            BigInt(priceX6), 
-            BigInt(slX6),     
-            BigInt(tpX6)      
-        ],
-      });
+    try {
+      // Préparation des arguments en X6
+      const slX6 = slEnabled ? Math.round(numSlPrice * 1000000) : 0;
+      const tpX6 = tpEnabled ? Math.round(numTpPrice * 1000000) : 0;
+      const actualLots = convertDisplayToLots(lotsDisplay, finalAssetIdForTx);
       
-      if (!publicClient) {
-          console.error("Wagmi public client is unavailable. Cannot wait for transaction receipt.");
+      // 3. LOGIQUE D'ENVOI DE TRANSACTION SÉPARÉE
+      if (orderType === 'limit') {
+        const targetX6 = Math.round(numLimitPrice * 1000000);
+
+        txHash = await writeContractAsync({ 
+            address: TRADING_ADDRESS,
+            abi: TRADING_ABI,
+            functionName: 'openLimit',
+            args: [
+                finalAssetIdForTx, 
+                longSide,
+                leverage,
+                actualLots,
+                BigInt(targetX6), 
+                BigInt(slX6),     
+                BigInt(tpX6)      
+            ],
+        });
+
+      } else { // Market Order
+        // RÉCUPÉRATION DE LA PREUVE (Doit être la première chose pour Market!)
+        const proof = await getMarketProof(finalAssetIdForTx);
+
+        txHash = await writeContractAsync({ 
+            address: TRADING_ADDRESS,
+            abi: TRADING_ABI,
+            functionName: 'openMarket',
+            args: [
+                proof, // Le type Hash (0x...) est utilisé directement
+                finalAssetIdForTx, 
+                longSide,
+                leverage,
+                actualLots,
+                BigInt(slX6),     
+                BigInt(tpX6)      
+            ],
+        });
+      }
+      
+      // 4. ATTENDRE LA CONFIRMATION
+      if (!publicClient || !txHash) {
+          console.error("Wagmi public client is unavailable or txHash missing.");
       } else {
           await publicClient.waitForTransactionReceipt({ hash: txHash });
       }
@@ -282,6 +347,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
         ),
       });
 
+      // Réinitialisation de l'interface
       setLimitPrice(currentPrice.toFixed(priceDecimals)); 
       setTpPrice('');
       setSlPrice('');
@@ -291,9 +357,19 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
 
       setTimeout(() => refetchAll(), 2000);
     } catch (error: any) {
+        console.error("Trade Error:", error);
+        let errorMsg = error?.message || 'Transaction failed.';
+
+        // Tentative d'extraire un message plus clair pour un Revert
+        if (errorMsg.includes('User rejected the request')) {
+             errorMsg = 'Transaction rejetée par l\'utilisateur.';
+        } else if (errorMsg.includes('revert')) {
+             errorMsg = 'La transaction a échoué (revert). La preuve a peut-être expiré ou est invalide.';
+        }
+
       toast({
         title: 'Order failed',
-        description: error?.message || 'Transaction failed',
+        description: errorMsg,
         variant: "destructive",
       });
     } finally {

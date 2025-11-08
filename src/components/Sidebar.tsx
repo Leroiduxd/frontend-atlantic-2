@@ -1,8 +1,8 @@
 "use client";
 
-import { Menu, TrendingUp, BarChart3, Wallet, Droplet } from "lucide-react";
+import { TrendingUp, BarChart3, Wallet, Droplet } from "lucide-react";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import React from 'react'; // Import de React
+import React from 'react';
 
 // Définition des props que le composant attend
 interface SidebarProps {
@@ -15,10 +15,22 @@ const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen }) => {
     <aside className="fixed left-0 top-0 z-20 w-[60px] h-screen flex-shrink-0 bg-sidebar flex flex-col items-center py-4 shadow-2xl">
       {/* Top Icons */}
       <div className="space-y-6 flex-grow flex flex-col items-center w-full">
-        {/* Hamburger Menu Icon */}
-        <div className="text-sidebar-foreground text-xl font-bold p-1 rounded-lg mt-0 cursor-pointer hover:bg-sidebar-accent transition-colors">
-          <Menu className="w-8 h-8" />
-        </div>
+        
+        {/* Logo (Plus haut, sans marge supérieure) */}
+        <a 
+          href="https://brokex.trade" 
+          target="_blank" 
+          rel="noopener noreferrer" 
+          // J'ai enlevé 'mt-2' ici. Le logo est maintenant aligné au top (py-4 de l'aside).
+          className="p-1 rounded-lg cursor-pointer hover:opacity-80 transition-opacity" 
+          title="Accueil BrokeX"
+        >
+          <img 
+            src="/logo.svg" 
+            alt="Logo BrokeX" 
+            className="w-10 h-10" 
+          />
+        </a>
         
         {/* Navigation Icons */}
         <a 
@@ -39,7 +51,6 @@ const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen }) => {
 
         {/* Bouton Faucet */}
         <button
-          // Utilise la prop pour ouvrir le FaucetDialog dans le composant parent (Index.js)
           onClick={() => setIsFaucetOpen(true)}
           className="p-2 rounded-xl text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors duration-200"
           title="Faucet"
