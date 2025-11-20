@@ -17,8 +17,7 @@ export const ChartToolbar = (props: ChartToolbarProps) => {
     
   return (
     <div 
-      className="absolute bottom-12 left-0 right-0 h-[220px] bg-chart-bg border-t border-b border-border p-0 z-40 flex justify-start items-center" 
-      style={{ zIndex: 40 }}
+      className="absolute bottom-12 left-0 right-0 h-[220px] bg-chart-bg border-t border-b border-border p-0 z-10 flex justify-start items-center"
     >
       
       {/* 🛑 1ère Colonne (50%) : Order Book */}

@@ -7,6 +7,7 @@ import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import { WagmiProvider } from 'wagmi';
 import { config } from './config/wagmi';
 import '@rainbow-me/rainbowkit/styles.css';
+import { SpiceFlowProvider } from "@spicenet-io/spicenet-sdk";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
@@ -19,17 +20,24 @@ const App = () => (
     <WagmiProvider config={config}> 
       {/* 🛑 3. RainbowKitProvider (Doit être en dessous de Wagmi) */}
       <RainbowKitProvider> 
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
+        <SpiceFlowProvider 
+          provider="privy"
+          privyAppId="cmebl077a0160l40a7xpxcv84"
+          supportedChainIds={[688689, 123420001114,5115 ,421614, 11155111]}
+          nonEip7702Mode={true}
+        >
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </SpiceFlowProvider>
       </RainbowKitProvider>
     </WagmiProvider>
   </QueryClientProvider>

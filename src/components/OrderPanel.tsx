@@ -5,14 +5,17 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useVault } from "@/hooks/useVault"; 
 import { useToast } from "@/hooks/use-toast";
 import { DepositDialog } from "./DepositDialog";
+import { SpiceDeposit } from "@spicenet-io/spicenet-sdk";
 import { Asset } from "./ChartControls";
 import { useAssetConfig } from "@/hooks/useAssetConfig";
 import { MarketClosedBanner } from "./MarketClosedBanner"; // 🛑 IMPORT DU NOUVEAU COMPOSANT
 // Wagmi/Viem Imports
-import { useWriteContract, useConfig } from 'wagmi'; 
+import { useWriteContract, useConfig, useAccount, useSwitchChain } from 'wagmi'; 
 import { Landmark, Send } from "lucide-react"; 
 import { ChevronUp, ChevronDown } from "lucide-react"; 
-import { Hash } from 'viem'; 
+import { Hash } from 'viem';
+import { customChain } from "@/config/wagmi"; 
+import { useVaultBalances } from "@/hooks/useVaultBalances";
 
 // Import du hook de statut de marché
 import { useMarketStatus } from "@/hooks/useMarketStatus";
@@ -138,12 +141,16 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const [tpPrice, setTpPrice] = useState('');
   const [slPrice, setSlPrice] = useState('');
   const [loading, setLoading] = useState(false);
+  const [spiceDepositOpen, setSpiceDepositOpen] = useState(false);
   
-  const { balance, available, locked, refetchAll } = useVault(); 
+  const { balance, available, locked, refetchAll, deposit } = useVault(); 
   const { toast } = useToast();
-  const { getConfigById, convertDisplayToLots } = useAssetConfig(); 
+  const { getConfigById, convertDisplayToLots } = useAssetConfig();
+  const { walletBalance, refetchAll: refetchBalances } = useVaultBalances();
+  const { isConnected, chain: currentChain } = useAccount(); 
   
   const { writeContractAsync } = useWriteContract();
+  const { switchChainAsync } = useSwitchChain();
   const config = useConfig();
   const publicClient = config.publicClient; 
   
@@ -605,7 +612,82 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
 
           {/* Bouton Deposit (Bas à droite) */}
           <div className="w-full flex justify-end">
-            <DepositDialog />
+          {/* <DepositDialog /> */}
+
+            <Button 
+              variant="secondary" 
+              size="sm" 
+              className="text-xs font-semibold"
+              onClick={() => setSpiceDepositOpen(true)}
+            >
+              Deposit
+            </Button>
+            {/* @ts-expect-error - React version mismatch between SDK (React 19 types) and project (React 18), but works at runtime */}
+            <SpiceDeposit 
+              isOpen={spiceDepositOpen} 
+              onClose={() => setSpiceDepositOpen(false)}
+              destinationChainId={customChain.id}
+              destinationTokenAddress="0x16b90aeb3de140dde993da1d5734bca28574702b"
+              postDepositInstructionLabel="Deposit to Brokex"
+              postDepositInstruction={async (bridgedAmount: string) => {
+                console.log('postDepositInstruction called with:', bridgedAmount, typeof bridgedAmount);
+                
+                // Validate inputs
+                if (!isConnected) {
+                  throw new Error("Wallet not connected");
+                }
+
+                if (!bridgedAmount || bridgedAmount.trim() === '') {
+                  throw new Error("Invalid amount received");
+                }
+
+                const amount = parseFloat(bridgedAmount);
+                console.log('Parsed amount:', amount);
+                
+                if (isNaN(amount) || amount <= 0) {
+                  throw new Error(`Invalid amount: ${bridgedAmount}`);
+                }
+
+                // Switch to Pharos Testnet Atlantic (688689) if not already on it
+                console.log('Current chain:', currentChain?.id);
+                if (currentChain?.id !== customChain.id) {
+                  console.log(`Switching to chain ${customChain.id} (${customChain.name})...`);
+                  try {
+                    await switchChainAsync({ chainId: customChain.id });
+                    console.log('Chain switch successful');
+                  } catch (error: any) {
+                    console.error('Failed to switch chain:', error);
+                    throw new Error(`Failed to switch to Pharos Testnet Atlantic: ${error.message}`);
+                  }
+                  
+                  // Wait 2 seconds after switching chain to allow wallet to sync
+                  console.log('Waiting 2 seconds after chain switch for wallet sync...');
+                  await new Promise(resolve => setTimeout(resolve, 2000));
+                  console.log('Chain sync complete, proceeding with deposit');
+                } else {
+                  console.log('Already on correct chain:', customChain.id);
+                }
+
+                // Refetch balances and allowances to ensure we have latest state
+                console.log('Refetching balances and allowances...');
+                refetchAll();
+                refetchBalances();
+                
+                // Small delay to let refetch complete
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Execute the deposit - SDK will handle showing success/error
+                console.log('Executing deposit to Brokex vault with amount:', bridgedAmount);
+                await deposit(bridgedAmount);
+                console.log('Deposit to Brokex successful');
+                
+                // Refresh balances after successful deposit
+                setTimeout(() => {
+                  refetchAll();
+                  refetchBalances();
+                }, 2000);
+              }}
+            />
           </div>
         </div>
       </div>

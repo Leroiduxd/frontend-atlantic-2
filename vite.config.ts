@@ -13,5 +13,25 @@ export default defineConfig(({ mode }) => ({
     alias: {
       "@": path.resolve(__dirname, "src"), // alias -> src
     },
+    dedupe: [
+      'viem',
+      'wagmi',
+      '@wagmi/core',
+      '@wagmi/connectors',
+      'porto',
+      'react',
+      'react-dom',
+      '@tanstack/react-query',
+    ],
+  },
+  optimizeDeps: {
+    include: [
+      'viem',
+      'wagmi',
+      '@wagmi/core',
+      '@wagmi/connectors',
+      'porto',
+    ],
+    exclude: ['@spicenet-io/spicenet-sdk'],
   },
 }));
