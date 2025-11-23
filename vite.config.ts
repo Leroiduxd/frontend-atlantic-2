@@ -18,7 +18,6 @@ export default defineConfig(({ mode }) => ({
       'wagmi',
       '@wagmi/core',
       '@wagmi/connectors',
-      'porto',
       'react',
       'react-dom',
       '@tanstack/react-query',
@@ -30,8 +29,10 @@ export default defineConfig(({ mode }) => ({
       'wagmi',
       '@wagmi/core',
       '@wagmi/connectors',
-      'porto',
     ],
-    exclude: ['@spicenet-io/spicenet-sdk'],
+  },
+  define: {
+    'process.env': {},
+    'global': 'globalThis',
   },
 }));

@@ -7,7 +7,8 @@ import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import { WagmiProvider } from 'wagmi';
 import { config } from './config/wagmi';
 import '@rainbow-me/rainbowkit/styles.css';
-import { SpiceFlowProvider } from "@spicenet-io/spicenet-sdk";
+import { SpiceFlowProvider } from "@spicenet-io/spiceflow-ui";
+import "@spicenet-io/spiceflow-ui/styles.css";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
@@ -23,7 +24,7 @@ const App = () => (
         <SpiceFlowProvider 
           provider="privy"
           privyAppId="cmebl077a0160l40a7xpxcv84"
-          supportedChainIds={[688689, 123420001114,5115 ,421614, 11155111]}
+          supportedChainIds={[84532, 688689,5115 ,421614, 11155111]}
           nonEip7702Mode={true}
         >
           <TooltipProvider>

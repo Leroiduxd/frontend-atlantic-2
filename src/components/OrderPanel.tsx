@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useVault } from "@/hooks/useVault"; 
 import { useToast } from "@/hooks/use-toast";
 import { DepositDialog } from "./DepositDialog";
-import { SpiceDeposit } from "@spicenet-io/spicenet-sdk";
+import { SpiceDeposit } from "@spicenet-io/spiceflow-ui";
 import { Asset } from "./ChartControls";
 import { useAssetConfig } from "@/hooks/useAssetConfig";
 import { MarketClosedBanner } from "./MarketClosedBanner"; // 🛑 IMPORT DU NOUVEAU COMPOSANT
@@ -147,7 +147,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const { toast } = useToast();
   const { getConfigById, convertDisplayToLots } = useAssetConfig();
   const { walletBalance, refetchAll: refetchBalances } = useVaultBalances();
-  const { isConnected, chain: currentChain } = useAccount(); 
+  const { isConnected, chain: currentChain, address: account } = useAccount(); 
   
   const { writeContractAsync } = useWriteContract();
   const { switchChainAsync } = useSwitchChain();
@@ -334,6 +334,8 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
                 BigInt(slX6),     
                 BigInt(tpX6)      
             ],
+            chain: currentChain,
+            account,
         });
 
       } else { // Market Order
@@ -353,6 +355,8 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
                 BigInt(slX6),     
                 BigInt(tpX6)      
             ],
+            chain: currentChain,
+            account,
         });
       }
       
