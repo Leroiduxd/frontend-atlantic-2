@@ -171,7 +171,31 @@ export const useVault = () => {
   const withdraw = async (amount: string) => {
     if (!address) throw new Error('No wallet connected');
 
-    const amountInWei = parseUnits(amount, 6);
+    if (!amount || amount.trim() === '') {
+      throw new Error('Amount cannot be empty');
+    }
+
+    const numericAmount = parseFloat(amount.trim());
+    if (isNaN(numericAmount) || numericAmount <= 0) {
+      throw new Error(`Invalid amount: ${amount}`);
+    }
+
+    // Check available balance before attempting withdrawal
+    const availableBalance = available ? Number(formatUnits(available, 6)) : 0;
+    if (numericAmount > availableBalance) {
+      throw new Error(
+        `Insufficient available balance. Available: ${availableBalance.toFixed(2)}, Requested: ${numericAmount.toFixed(2)}`
+      );
+    }
+
+    const amountInWei = parseUnits(amount.trim(), 6);
+
+    console.log('Withdrawing:', {
+      amount,
+      numericAmount,
+      amountInWei: amountInWei.toString(),
+      availableBalance,
+    });
 
     try {
       const hash = await writeContractAsync({
@@ -188,8 +212,26 @@ export const useVault = () => {
       console.error('Withdraw error details:', {
         error,
         message: error instanceof Error ? error.message : String(error),
+        amount,
+        numericAmount,
+        amountInWei: amountInWei.toString(),
+        availableBalance,
       });
-      throw error;
+      
+      // Try to extract more specific error message
+      let errorMessage = 'Withdrawal failed';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        
+        // Check for common revert reasons
+        if (error.message.includes('Insufficient')) {
+          errorMessage = 'Insufficient balance available for withdrawal';
+        } else if (error.message.includes('revert')) {
+          errorMessage = 'Transaction reverted. Please check your available balance.';
+        }
+      }
+      
+      throw new Error(errorMessage);
     }
   };
 

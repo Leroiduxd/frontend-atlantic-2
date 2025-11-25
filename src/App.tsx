@@ -25,6 +25,7 @@ const App = () => (
           provider="privy"
           privyAppId="cmebl077a0160l40a7xpxcv84"
           supportedChainIds={[84532, 688689,5115 ,421614, 11155111]}
+          nativeChainId={688689}
           nonEip7702Mode={true}
         >
           <TooltipProvider>

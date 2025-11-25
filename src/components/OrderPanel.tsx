@@ -5,7 +5,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useVault } from "@/hooks/useVault"; 
 import { useToast } from "@/hooks/use-toast";
 import { DepositDialog } from "./DepositDialog";
-import { SpiceDeposit } from "@spicenet-io/spiceflow-ui";
+import { SpiceDeposit, SpiceBalance, useSpiceBalance } from "@spicenet-io/spiceflow-ui";
 import { Asset } from "./ChartControls";
 import { useAssetConfig } from "@/hooks/useAssetConfig";
 import { MarketClosedBanner } from "./MarketClosedBanner"; // 🛑 IMPORT DU NOUVEAU COMPOSANT
@@ -142,12 +142,20 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const [slPrice, setSlPrice] = useState('');
   const [loading, setLoading] = useState(false);
   const [spiceDepositOpen, setSpiceDepositOpen] = useState(false);
-  
-  const { balance, available, locked, refetchAll, deposit } = useVault(); 
+  const [spiceBalanceOpen, setSpiceBalanceOpen] = useState(false);
+
+  const { balance, available, locked, refetchAll, deposit, withdraw } = useVault();
   const { toast } = useToast();
   const { getConfigById, convertDisplayToLots } = useAssetConfig();
   const { walletBalance, refetchAll: refetchBalances } = useVaultBalances();
-  const { isConnected, chain: currentChain, address: account } = useAccount(); 
+  const { isConnected, chain: currentChain, address: account } = useAccount();
+  
+  // Check if user has Spice balance
+  const { balanceData, loading: balanceLoading, hasBalance, refetch: refetchSpiceBalance } = useSpiceBalance({
+    address: account,
+    enabled: !!account,
+    refetchInterval: 30000, // Refetch every 30 seconds
+  }); 
   
   const { writeContractAsync } = useWriteContract();
   const { switchChainAsync } = useSwitchChain();
@@ -614,22 +622,130 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
               </div>
           </div>
 
-          {/* Bouton Deposit (Bas à droite) */}
+          {/* Bouton Deposit/Wallet (Bas à droite) */}
           <div className="w-full flex justify-end">
           {/* <DepositDialog /> */}
 
-            <Button 
-              variant="secondary" 
-              size="sm" 
-              className="text-xs font-semibold"
-              onClick={() => setSpiceDepositOpen(true)}
-            >
-              Deposit
-            </Button>
-            {/* @ts-expect-error - React version mismatch between SDK (React 19 types) and project (React 18), but works at runtime */}
+            {/* Show wallet icon if user has balance, otherwise show deposit button */}
+            {hasBalance ? (
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                className="text-xs font-semibold flex items-center gap-2"
+                onClick={() => setSpiceBalanceOpen(true)}
+                disabled={balanceLoading}
+              >
+                {balanceLoading ? (
+                  "Loading..."
+                ) : (
+                  <>
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <rect x="2" y="4" width="20" height="16" rx="2" />
+                      <path d="M7 15h0M2 9.5h20" />
+                    </svg>
+                    View Balance
+                  </>
+                )}
+              </Button>
+            ) : (
+              <Button 
+                variant="secondary" 
+                size="sm" 
+                className="text-xs font-semibold"
+                onClick={() => setSpiceDepositOpen(true)}
+              >
+                Deposit
+              </Button>
+            )}
+            
+            {/* SpiceBalance Modal - Show when user has balance and modal is open */}
+            {spiceBalanceOpen && hasBalance && balanceData && (
+              <div
+                className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+                onClick={() => setSpiceBalanceOpen(false)}
+              >
+                <div onClick={(e) => e.stopPropagation()}>
+                  <SpiceBalance
+                    balanceData={balanceData}
+                    isLoading={balanceLoading}
+                    onDepositClick={() => {
+                      setSpiceBalanceOpen(false);
+                      setTimeout(() => setSpiceDepositOpen(true), 100);
+                    }}
+                    // Withdraw props for non-EIP-7702 mode
+                    vaultBalance={parseFloat(available || '0')}
+                    postWithdrawInstruction={async (amount: string) => {
+                      console.log('Withdrawing from Brokex vault:', amount);
+                      
+                      // Validate inputs
+                      if (!isConnected) {
+                        throw new Error("Wallet not connected");
+                      }
+
+                      if (!amount || amount.trim() === '') {
+                        throw new Error("Invalid amount");
+                      }
+
+                      const numericAmount = parseFloat(amount);
+                      if (isNaN(numericAmount) || numericAmount <= 0) {
+                        throw new Error(`Invalid amount: ${amount}`);
+                      }
+
+                      // Switch to Pharos Testnet Atlantic if needed
+                      if (currentChain?.id !== customChain.id) {
+                        console.log(`Switching to chain ${customChain.id}...`);
+                        await switchChainAsync({ chainId: customChain.id });
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                      }
+
+                      // Refetch available balance to ensure we have latest value
+                      // (positions might have changed available balance)
+                      console.log('Refetching available balance before withdrawal...');
+                      await refetchAll();
+                      await new Promise(resolve => setTimeout(resolve, 500));
+
+                      // Execute the withdrawal (withdraw function will validate available balance)
+                      console.log('Calling withdraw with:', {
+                        amount,
+                        numericAmount,
+                        currentAvailable: parseFloat(available || '0'),
+                      });
+                      
+                      await withdraw(amount);
+                      console.log('Withdrawal from Brokex successful');
+                      
+                      // Refresh balances
+                      setTimeout(() => {
+                        refetchAll();
+                        refetchBalances();
+                        refetchSpiceBalance();
+                      }, 2000);
+                    }}
+                    postWithdrawInstructionLabel="WITHDRAW FROM BROKEX"
+                    destinationChainId={customChain.id}
+                    destinationTokenAddress="0x16b90aeb3de140dde993da1d5734bca28574702b"
+                  />
+                </div>
+              </div>
+            )}
+            
+            {/* SpiceDeposit Modal - Show when user doesn't have balance or when requested from SpiceBalance */}
             <SpiceDeposit 
               isOpen={spiceDepositOpen} 
-              onClose={() => setSpiceDepositOpen(false)}
+              onClose={() => {
+                setSpiceDepositOpen(false);
+                // Refetch balance after deposit completes
+                setTimeout(() => {
+                  refetchSpiceBalance();
+                }, 2000);
+              }}
               destinationChainId={customChain.id}
               destinationTokenAddress="0x16b90aeb3de140dde993da1d5734bca28574702b"
               postDepositInstructionLabel="Deposit to Brokex"
