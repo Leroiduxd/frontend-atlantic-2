@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useVault } from "@/hooks/useVault"; 
+import { useVault } from "@/hooks/useVault";
 import { useToast } from "@/hooks/use-toast";
 import { DepositDialog } from "./DepositDialog";
 import { SpiceDeposit, SpiceBalance, useSpiceBalance } from "@spicenet-io/spiceflow-ui";
@@ -10,11 +10,11 @@ import { Asset } from "./ChartControls";
 import { useAssetConfig } from "@/hooks/useAssetConfig";
 import { MarketClosedBanner } from "./MarketClosedBanner"; // 🛑 IMPORT DU NOUVEAU COMPOSANT
 // Wagmi/Viem Imports
-import { useWriteContract, useConfig, useAccount, useSwitchChain } from 'wagmi'; 
-import { Landmark, Send } from "lucide-react"; 
-import { ChevronUp, ChevronDown } from "lucide-react"; 
+import { useWriteContract, useConfig, useAccount, useSwitchChain } from 'wagmi';
+import { Landmark, Send } from "lucide-react";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import { Hash } from 'viem';
-import { customChain } from "@/config/wagmi"; 
+import { customChain } from "@/config/wagmi";
 import { useVaultBalances } from "@/hooks/useVaultBalances";
 
 // Import du hook de statut de marché
@@ -60,46 +60,46 @@ const TRADING_ABI = [
 
 // (StepController remains unchanged)
 interface StepControllerProps {
-    value: string | number;
-    onChange: (value: any) => void;
-    step: number;
-    min?: number;
-    max?: number;
-    decimals?: number;
-    label: string;
-    unit: string;
+  value: string | number;
+  onChange: (value: any) => void;
+  step: number;
+  min?: number;
+  max?: number;
+  decimals?: number;
+  label: string;
+  unit: string;
 }
-const StepController: React.FC<StepControllerProps> = ({ 
-    value, onChange, step, min = 0, max = Infinity, decimals = 2,
+const StepController: React.FC<StepControllerProps> = ({
+  value, onChange, step, min = 0, max = Infinity, decimals = 2,
 }) => {
-    const numericValue = Number(value);
-    const handleStep = (delta: number) => {
-        const newValue = Math.min(max, Math.max(min, numericValue + delta));
-        onChange(Number(newValue.toFixed(decimals)));
-    };
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = e.target.value; 
-        onChange(val); 
-    };
-    return (
-        <div className="relative flex items-center">
-            <Input
-                type="text" 
-                placeholder="0.00"
-                value={value}
-                onChange={handleInputChange}
-                className={`w-full text-lg font-medium pr-10`} 
-            />
-            <div className="absolute right-0 top-0 h-full flex flex-col justify-center border-l border-border">
-                <Button variant="ghost" size="icon" className="h-1/2 w-8 p-0 border-b border-border/80 rounded-none rounded-tr-sm" onClick={() => handleStep(step)}>
-                    <ChevronUp className="w-4 h-4" />
-                </Button>
-                <Button variant="ghost" size="icon" className="h-1/2 w-8 p-0 rounded-none rounded-br-sm" onClick={() => handleStep(-step)}>
-                    <ChevronDown className="w-4 h-4" />
-                </Button>
-            </div>
-        </div>
-    );
+  const numericValue = Number(value);
+  const handleStep = (delta: number) => {
+    const newValue = Math.min(max, Math.max(min, numericValue + delta));
+    onChange(Number(newValue.toFixed(decimals)));
+  };
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    onChange(val);
+  };
+  return (
+    <div className="relative flex items-center">
+      <Input
+        type="text"
+        placeholder="0.00"
+        value={value}
+        onChange={handleInputChange}
+        className={`w-full text-lg font-medium pr-10`}
+      />
+      <div className="absolute right-0 top-0 h-full flex flex-col justify-center border-l border-border">
+        <Button variant="ghost" size="icon" className="h-1/2 w-8 p-0 border-b border-border/80 rounded-none rounded-tr-sm" onClick={() => handleStep(step)}>
+          <ChevronUp className="w-4 h-4" />
+        </Button>
+        <Button variant="ghost" size="icon" className="h-1/2 w-8 p-0 rounded-none rounded-br-sm" onClick={() => handleStep(-step)}>
+          <ChevronDown className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
 };
 // ====================================================================
 
@@ -113,21 +113,21 @@ interface OrderPanelProps {
 
 // UTILITY FUNCTION: Fetch Proof (more robust)
 const getMarketProof = async (assetId: number): Promise<Hash> => {
-    const url = `https://backend.brokex.trade/proof?pairs=${assetId}`;
-    const response = await fetch(url);
+  const url = `https://backend.brokex.trade/proof?pairs=${assetId}`;
+  const response = await fetch(url);
 
-    if (!response.ok) {
-        throw new Error(`Failed to fetch proof for asset ${assetId}. Status: ${response.status}`);
-    }
+  if (!response.ok) {
+    throw new Error(`Failed to fetch proof for asset ${assetId}. Status: ${response.status}`);
+  }
 
-    const data = await response.json();
-    const proof = data.proof as string;
+  const data = await response.json();
+  const proof = data.proof as string;
 
-    if (!proof || proof.length <= 2 || !proof.startsWith('0x')) {
-         throw new Error("Invalid proof received from API.");
-    }
+  if (!proof || proof.length <= 2 || !proof.startsWith('0x')) {
+    throw new Error("Invalid proof received from API.");
+  }
 
-    return proof as Hash; 
+  return proof as Hash;
 };
 
 
@@ -136,7 +136,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const [tpEnabled, setTpEnabled] = useState(false);
   const [slEnabled, setSlEnabled] = useState(false);
   const [leverage, setLeverage] = useState(10);
-  const [lotsDisplay, setLotsDisplay] = useState(0.01); 
+  const [lotsDisplay, setLotsDisplay] = useState(0.01);
   const [limitPrice, setLimitPrice] = useState('');
   const [tpPrice, setTpPrice] = useState('');
   const [slPrice, setSlPrice] = useState('');
@@ -147,21 +147,21 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   const { balance, available, locked, refetchAll, deposit, withdraw } = useVault();
   const { toast } = useToast();
   const { getConfigById, convertDisplayToLots } = useAssetConfig();
-  const { walletBalance, refetchAll: refetchBalances } = useVaultBalances();
+  const { totalBalance, refetchAll: refetchBalances } = useVaultBalances();
   const { isConnected, chain: currentChain, address: account } = useAccount();
-  
+
   // Check if user has Spice balance
   const { balanceData, loading: balanceLoading, hasBalance, refetch: refetchSpiceBalance } = useSpiceBalance({
     address: account,
     enabled: !!account,
     refetchInterval: 30000, // Refetch every 30 seconds
-  }); 
-  
+  });
+
   const { writeContractAsync } = useWriteContract();
   const { switchChainAsync } = useSwitchChain();
   const config = useConfig();
-  const publicClient = config.publicClient; 
-  
+  const publicClient = config.publicClient;
+
   const finalAssetIdForTx = useMemo(() => {
     const n = Number(selectedAsset.id);
     return Number.isFinite(n) ? n : -1;
@@ -170,7 +170,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
   // 🛑 UTILISATION DU HOOK DE STATUT DE MARCHÉ
   const marketStatus = useMarketStatus(finalAssetIdForTx);
   const isMarketOpen = marketStatus.isOpen;
-  
+
   // Si le marché est fermé, forcer l'ordre Limit
   useEffect(() => {
     if (!isMarketOpen && orderType === "market") {
@@ -178,19 +178,19 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
     }
   }, [isMarketOpen, orderType]);
 
-  const assetConfig = getConfigById(finalAssetIdForTx); 
+  const assetConfig = getConfigById(finalAssetIdForTx);
 
   const { minLotSizeDisplay, lotStep, priceDecimals, priceStep } = useMemo(() => {
     // Logique de calcul du lotStep et priceStep
     const num = assetConfig?.lot_num || 1;
     const den = assetConfig?.lot_den || 100;
     const lotSize = num / den;
-    const lotStep = lotSize; 
-    
-    const tickSizeX6 = assetConfig?.tick_size_usd6 || 10000; 
-    const powerOfTen = Math.round(Math.log10(1000000 / tickSizeX6)); 
-    const decimals = Math.max(0, powerOfTen); 
-    const step = 1 / (10 ** decimals); 
+    const lotStep = lotSize;
+
+    const tickSizeX6 = assetConfig?.tick_size_usd6 || 10000;
+    const powerOfTen = Math.round(Math.log10(1000000 / tickSizeX6));
+    const decimals = Math.max(0, powerOfTen);
+    const step = 1 / (10 ** decimals);
 
     return {
       minLotSizeDisplay: lotSize,
@@ -202,38 +202,39 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
 
 
   useEffect(() => {
-    setLotsDisplay(minLotSizeDisplay); 
+    setLotsDisplay(minLotSizeDisplay);
     if (currentPrice > 0) {
-        // Mise à jour de limitPrice uniquement si on est sur Limit au montage
-        if (orderType === 'limit') {
-            setLimitPrice(currentPrice.toFixed(priceDecimals));
-        }
+      // Mise à jour de limitPrice uniquement si on est sur Limit au montage
+      if (orderType === 'limit') {
+        setLimitPrice(currentPrice.toFixed(priceDecimals));
+      }
     }
-  }, [selectedAsset.id, currentPrice, minLotSizeDisplay, priceDecimals, orderType]); 
+  }, [selectedAsset.id, currentPrice, minLotSizeDisplay, priceDecimals, orderType]);
 
-  
+
+
   const handleLotsChange = (value: number) => {
     setLotsDisplay(value);
   };
-  
+
   const calculations = useMemo(() => {
     // Utiliser le prix actuel si ordre Market
     const price = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
-    
+
     // Si le prix n'est pas valide (ex: initialisation), éviter les calculs
     if (isNaN(price) || price <= 0 || lotsDisplay <= 0) {
-        return { value: 0, cost: 0, liqPriceLong: 0, liqPriceShort: 0 };
+      return { value: 0, cost: 0, liqPriceLong: 0, liqPriceShort: 0 };
     }
 
-    const displayNotional = lotsDisplay * price; 
-    
+    const displayNotional = lotsDisplay * price;
+
     // La liq price est calculée par rapport au prix d'entrée
     const liqPriceLong = price * (1 - 0.99 / leverage);
-    const liqPriceShort = price * (1 + 0.99 / leverage); 
+    const liqPriceShort = price * (1 + 0.99 / leverage);
 
     return {
       value: displayNotional,
-      cost: displayNotional / leverage, 
+      cost: displayNotional / leverage,
       liqPriceLong,
       liqPriceShort,
     };
@@ -241,62 +242,62 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
 
   const formatPrice = (value: number) => {
     if (value === 0) return "0.00";
-    return value.toFixed(priceDecimals > 5 ? 5 : priceDecimals || 2); 
+    return value.toFixed(priceDecimals > 5 ? 5 : priceDecimals || 2);
   };
 
 
   const handleTrade = async (longSide: boolean) => {
-    
+
     // --- 0. MARKET STATUS CHECK ---
     if (!isMarketOpen && orderType === 'market') {
-      return toast({ 
-        title: 'Market Closed', 
-        description: `Market orders are disabled when the market is closed. Please use a Limit order.`, 
-        variant: "destructive" 
+      return toast({
+        title: 'Market Closed',
+        description: `Market orders are disabled when the market is closed. Please use a Limit order.`,
+        variant: "destructive"
       });
     }
 
     // --- 1. CRITICAL CHECKS ---
     if (finalAssetIdForTx < 0) {
-        return toast({ title: 'Configuration Error', description: `Please select a valid trading pair.`, variant: "destructive", });
+      return toast({ title: 'Configuration Error', description: `Please select a valid trading pair.`, variant: "destructive", });
     }
-    
+
     const numLimitPrice = Number(limitPrice);
     const numSlPrice = Number(slPrice);
     const numTpPrice = Number(tpPrice);
-    
+
     if (orderType === 'limit' && (isNaN(numLimitPrice) || numLimitPrice <= 0)) {
-        return toast({ title: 'Input Error', description: 'Please enter a valid Limit Price.', variant: "destructive" });
+      return toast({ title: 'Input Error', description: 'Please enter a valid Limit Price.', variant: "destructive" });
     }
     // Lot validation
     if (lotsDisplay < minLotSizeDisplay) {
-        return toast({ title: 'Input Error', description: `Minimum lot size is ${minLotSizeDisplay}.`, variant: "destructive" });
+      return toast({ title: 'Input Error', description: `Minimum lot size is ${minLotSizeDisplay}.`, variant: "destructive" });
     }
 
     // CHECK: AVAILABLE BALANCE
     const requiredMargin = calculations.cost;
     const requiredMarginWithBuffer = requiredMargin * 1.01; // Margin + 1%
-    const availableBalance = Number(available); 
+    const availableBalance = Number(available);
 
     if (availableBalance < requiredMarginWithBuffer) {
-        return toast({
-            title: 'Insufficient Balance',
-            description: `Required Margin: $${formatPrice(requiredMarginWithBuffer)}. Available: $${availableBalance}.`,
-            variant: "destructive",
-        });
+      return toast({
+        title: 'Insufficient Balance',
+        description: `Required Margin: $${formatPrice(requiredMarginWithBuffer)}. Available: $${availableBalance}.`,
+        variant: "destructive",
+      });
     }
 
     // 2. SL/TP VALIDATION
     const entryPrice = orderType === 'limit' ? numLimitPrice : currentPrice;
-    const liqPrice = longSide 
-        ? entryPrice * (1 - 0.99 / leverage) 
-        : entryPrice * (1 + 0.99 / leverage);
+    const liqPrice = longSide
+      ? entryPrice * (1 - 0.99 / leverage)
+      : entryPrice * (1 + 0.99 / leverage);
 
     if (slEnabled && (isNaN(numSlPrice) || numSlPrice <= 0)) {
-        return toast({ title: 'Input Error', description: 'Please enter a valid Stop Loss Price.', variant: "destructive" });
+      return toast({ title: 'Input Error', description: 'Please enter a valid Stop Loss Price.', variant: "destructive" });
     }
     if (tpEnabled && (isNaN(numTpPrice) || numTpPrice <= 0)) {
-        return toast({ title: 'Input Error', description: 'Please enter a valid Take Profit Price.', variant: "destructive" });
+      return toast({ title: 'Input Error', description: 'Please enter a valid Take Profit Price.', variant: "destructive" });
     }
 
     if (slEnabled) {
@@ -317,62 +318,62 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
 
 
     setLoading(true);
-    let txHash: Hash | undefined; 
+    let txHash: Hash | undefined;
 
     try {
       // Préparation des arguments en X6
       const slX6 = slEnabled ? Math.round(numSlPrice * 1000000) : 0;
       const tpX6 = tpEnabled ? Math.round(numTpPrice * 1000000) : 0;
       const actualLots = convertDisplayToLots(lotsDisplay, finalAssetIdForTx);
-      
+
       // 3. LOGIQUE D'ENVOI DE TRANSACTION SÉPARÉE
       if (orderType === 'limit') {
         const targetX6 = Math.round(numLimitPrice * 1000000);
 
-        txHash = await writeContractAsync({ 
-            address: TRADING_ADDRESS,
-            abi: TRADING_ABI,
-            functionName: 'openLimit',
-            args: [
-                finalAssetIdForTx, 
-                longSide,
-                leverage,
-                actualLots,
-                BigInt(targetX6), 
-                BigInt(slX6),     
-                BigInt(tpX6)      
-            ],
-            chain: currentChain,
-            account,
+        txHash = await writeContractAsync({
+          address: TRADING_ADDRESS,
+          abi: TRADING_ABI,
+          functionName: 'openLimit',
+          args: [
+            finalAssetIdForTx,
+            longSide,
+            leverage,
+            actualLots,
+            BigInt(targetX6),
+            BigInt(slX6),
+            BigInt(tpX6)
+          ],
+          chain: currentChain,
+          account,
         });
 
       } else { // Market Order
         // RÉCUPÉRATION DE LA PREUVE (Doit être la première chose pour Market!)
         const proof = await getMarketProof(finalAssetIdForTx);
 
-        txHash = await writeContractAsync({ 
-            address: TRADING_ADDRESS,
-            abi: TRADING_ABI,
-            functionName: 'openMarket',
-            args: [
-                proof, 
-                finalAssetIdForTx, 
-                longSide,
-                leverage,
-                actualLots,
-                BigInt(slX6),     
-                BigInt(tpX6)      
-            ],
-            chain: currentChain,
-            account,
+        txHash = await writeContractAsync({
+          address: TRADING_ADDRESS,
+          abi: TRADING_ABI,
+          functionName: 'openMarket',
+          args: [
+            proof,
+            finalAssetIdForTx,
+            longSide,
+            leverage,
+            actualLots,
+            BigInt(slX6),
+            BigInt(tpX6)
+          ],
+          chain: currentChain,
+          account,
         });
       }
-      
+
       // 4. ATTENDRE LA CONFIRMATION
       if (!publicClient || !txHash) {
-          console.error("Wagmi public client is unavailable or txHash missing.");
+        console.error("Wagmi public client is unavailable or txHash missing.");
       } else {
-          await publicClient.waitForTransactionReceipt({ hash: txHash });
+        await publicClient.waitForTransactionReceipt({ hash: txHash });
       }
 
       const explorerUrl = txHash ? `https://atlantic.pharosscan.xyz/tx/${txHash}` : undefined;
@@ -392,7 +393,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
       });
 
       // Réinitialisation de l'interface
-      setLimitPrice(currentPrice.toFixed(priceDecimals)); 
+      setLimitPrice(currentPrice.toFixed(priceDecimals));
       setTpPrice('');
       setSlPrice('');
       setTpEnabled(false);
@@ -401,14 +402,14 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
 
       setTimeout(() => refetchAll(), 2000);
     } catch (error: any) {
-        console.error("Trade Error:", error);
-        let errorMsg = error?.message || 'Transaction failed.';
+      console.error("Trade Error:", error);
+      let errorMsg = error?.message || 'Transaction failed.';
 
-        if (errorMsg.includes('User rejected the request')) {
-             errorMsg = 'Transaction rejected by user.';
-        } else if (errorMsg.includes('revert')) {
-             errorMsg = 'Transaction failed (revert). Proof may have expired or be invalid.';
-        }
+      if (errorMsg.includes('User rejected the request')) {
+        errorMsg = 'Transaction rejected by user.';
+      } else if (errorMsg.includes('revert')) {
+        errorMsg = 'Transaction failed (revert). Proof may have expired or be invalid.';
+      }
 
       toast({
         title: 'Order failed',
@@ -423,36 +424,34 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
 
   return (
     <div className="w-[320px] h-full flex flex-col border-l border-border shadow-md bg-card">
-      
+
       {/* 🛑 BANNER D'AVERTISSEMENT (nouvel emplacement pour l'espacement) */}
       <MarketClosedBanner status={marketStatus} />
 
       {/* Order Panel Content (Scrollable) */}
       {/* On utilise 'mt-4' dans le composant Banner, on retire le 'pt-0' conditionnel ici */}
       <div className="flex-grow p-4 space-y-5 overflow-y-auto custom-scrollbar">
-        
+
         {/* 1. Tabs (Limit, Market) and Leverage */}
         <div className="flex justify-between items-center border-b border-border text-muted-foreground font-medium text-sm pt-1 pb-2">
           <div className="flex">
             <div
-              className={`py-1 mr-4 cursor-pointer transition duration-150 ${
-                orderType === "limit"
+              className={`py-1 mr-4 cursor-pointer transition duration-150 ${orderType === "limit"
                   ? "text-foreground border-b-2 border-foreground"
                   : "hover:text-foreground"
-              }`}
+                }`}
               onClick={() => setOrderType("limit")}
             >
               Limit
             </div>
             {/* Market Tab désactivé si marché fermé */}
             <div
-              className={`py-1 mr-4 transition duration-150 ${
-                !isMarketOpen 
-                  ? "text-muted-foreground/50 cursor-not-allowed" 
+              className={`py-1 mr-4 transition duration-150 ${!isMarketOpen
+                  ? "text-muted-foreground/50 cursor-not-allowed"
                   : orderType === "market"
-                  ? "text-foreground border-b-2 border-foreground cursor-pointer"
-                  : "hover:text-foreground cursor-pointer"
-              }`}
+                    ? "text-foreground border-b-2 border-foreground cursor-pointer"
+                    : "hover:text-foreground cursor-pointer"
+                }`}
               onClick={() => isMarketOpen && setOrderType("market")}
             >
               Market
@@ -475,13 +474,13 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
         {orderType === "limit" && (
           <div>
             <span className="text-light-text text-xs block mb-1">Limit Price (USD)</span>
-            <StepController 
-                value={limitPrice}
-                onChange={setLimitPrice}
-                step={priceStep}
-                decimals={priceDecimals}
-                label="Price"
-                unit="USD"
+            <StepController
+              value={limitPrice}
+              onChange={setLimitPrice}
+              step={priceStep}
+              decimals={priceDecimals}
+              label="Price"
+              unit="USD"
             />
           </div>
         )}
@@ -498,14 +497,14 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
           <span className="text-light-text text-xs block mb-1">
             Lots ({selectedAsset.symbol.split('/')[0] || 'BTC'})
           </span>
-          <StepController 
-              value={lotsDisplay}
-              onChange={handleLotsChange}
-              step={lotStep}
-              min={minLotSizeDisplay}
-              decimals={lotStep >= 1 ? 0 : 2} 
-              label="Lots"
-              unit={selectedAsset.symbol.split('/')[0] || 'BTC'}
+          <StepController
+            value={lotsDisplay}
+            onChange={handleLotsChange}
+            step={lotStep}
+            min={minLotSizeDisplay}
+            decimals={lotStep >= 1 ? 0 : 2}
+            label="Lots"
+            unit={selectedAsset.symbol.split('/')[0] || 'BTC'}
           />
         </div>
 
@@ -522,13 +521,13 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
               <span className="text-sm font-medium">Take Profit</span>
             </label>
             {tpEnabled && (
-              <StepController 
-                  value={tpPrice}
-                  onChange={setTpPrice}
-                  step={priceStep}
-                  decimals={priceDecimals}
-                  label="TP Price"
-                  unit="USD"
+              <StepController
+                value={tpPrice}
+                onChange={setTpPrice}
+                step={priceStep}
+                decimals={priceDecimals}
+                label="TP Price"
+                unit="USD"
               />
             )}
           </div>
@@ -544,13 +543,13 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
               <span className="text-sm font-medium">Stop Loss</span>
             </label>
             {slEnabled && (
-              <StepController 
-                  value={slPrice}
-                  onChange={setSlPrice}
-                  step={priceStep}
-                  decimals={priceDecimals}
-                  label="SL Price"
-                  unit="USD"
+              <StepController
+                value={slPrice}
+                onChange={setSlPrice}
+                step={priceStep}
+                decimals={priceDecimals}
+                label="SL Price"
+                unit="USD"
               />
             )}
           </div>
@@ -594,43 +593,43 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
           </div>
         </div>
       </div>
-      
+
       {/* 7. Deposit Info (Landmark Panel) - Unchanged */}
       <div className="flex-shrink-0 mx-4 mt-2 mb-4 p-4 h-[200px] bg-blue-50 rounded-lg relative overflow-hidden">
-        
+
         {/* Logo de banque en fond (Landmark) */}
         <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[33%]">
-            <Landmark className="w-48 h-48 text-blue-200 opacity-70" />
+          <Landmark className="w-48 h-48 text-blue-200 opacity-70" />
         </div>
-        
+
         {/* Contenu - Aligné à droite */}
         <div className="relative z-10 flex flex-col items-end w-full h-full justify-between">
-          
+
           {/* Informations (Haut à droite) */}
           <div className="text-xs space-y-1.5 pt-1">
-              <div className="flex justify-between items-center w-full">
-                <span className="text-light-text min-w-[80px] text-right">Total Balance:</span>
-                <span className="font-semibold text-foreground">${balance}</span>
-              </div>
-              <div className="flex justify-between items-center w-full">
-                <span className="text-light-text min-w-[80px] text-right">Available:</span>
-                <span className="font-semibold text-foreground">${available}</span>
-              </div>
-              <div className="flex justify-between items-center w-full">
-                <span className="text-light-text min-w-[80px] text-right">Locked Margin:</span>
-                <span className="font-semibold text-foreground">${locked}</span>
-              </div>
+            <div className="flex justify-between items-center w-full">
+              <span className="text-light-text min-w-[80px] text-right">Total Balance:</span>
+              <span className="font-semibold text-foreground">${balance}</span>
+            </div>
+            <div className="flex justify-between items-center w-full">
+              <span className="text-light-text min-w-[80px] text-right">Available:</span>
+              <span className="font-semibold text-foreground">${available}</span>
+            </div>
+            <div className="flex justify-between items-center w-full">
+              <span className="text-light-text min-w-[80px] text-right">Locked Margin:</span>
+              <span className="font-semibold text-foreground">${locked}</span>
+            </div>
           </div>
 
           {/* Bouton Deposit/Wallet (Bas à droite) */}
           <div className="w-full flex justify-end">
-          {/* <DepositDialog /> */}
+            {/* <DepositDialog /> */}
 
             {/* Show wallet icon if user has balance, otherwise show deposit button */}
-            {hasBalance ? (
-              <Button 
-                variant="secondary" 
-                size="sm" 
+            {totalBalance > 0 ? (
+              <Button
+                variant="secondary"
+                size="sm"
                 className="text-xs font-semibold flex items-center gap-2"
                 onClick={() => setSpiceBalanceOpen(true)}
                 disabled={balanceLoading}
@@ -655,25 +654,31 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
                 )}
               </Button>
             ) : (
-              <Button 
-                variant="secondary" 
-                size="sm" 
+              <Button
+                variant="secondary"
+                size="sm"
                 className="text-xs font-semibold"
                 onClick={() => setSpiceDepositOpen(true)}
               >
                 Deposit
               </Button>
             )}
-            
+
             {/* SpiceBalance Modal - Show when user has balance and modal is open */}
-            {spiceBalanceOpen && hasBalance && balanceData && (
+            {spiceBalanceOpen && (
               <div
                 className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
                 onClick={() => setSpiceBalanceOpen(false)}
               >
                 <div onClick={(e) => e.stopPropagation()}>
                   <SpiceBalance
-                    balanceData={balanceData}
+                    balanceData={{
+                      tradingAccounts: [],
+                      freeCollateral: 0,
+                      defiPositions: 0,
+                      credit: 0,
+                      totalBalance: totalBalance,
+                    }}
                     isLoading={balanceLoading}
                     onDepositClick={() => {
                       setSpiceBalanceOpen(false);
@@ -683,7 +688,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
                     vaultBalance={parseFloat(available || '0')}
                     postWithdrawInstruction={async (amount: string) => {
                       console.log('Withdrawing from Brokex vault:', amount);
-                      
+
                       // Validate inputs
                       if (!isConnected) {
                         throw new Error("Wallet not connected");
@@ -717,10 +722,10 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
                         numericAmount,
                         currentAvailable: parseFloat(available || '0'),
                       });
-                      
+
                       await withdraw(amount);
                       console.log('Withdrawal from Brokex successful');
-                      
+
                       // Refresh balances
                       setTimeout(() => {
                         refetchAll();
@@ -735,10 +740,10 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
                 </div>
               </div>
             )}
-            
+
             {/* SpiceDeposit Modal - Show when user doesn't have balance or when requested from SpiceBalance */}
-            <SpiceDeposit 
-              isOpen={spiceDepositOpen} 
+            <SpiceDeposit
+              isOpen={spiceDepositOpen}
               onClose={() => {
                 setSpiceDepositOpen(false);
                 // Refetch balance after deposit completes
@@ -751,7 +756,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
               postDepositInstructionLabel="Deposit to Brokex"
               postDepositInstruction={async (bridgedAmount: string) => {
                 console.log('postDepositInstruction called with:', bridgedAmount, typeof bridgedAmount);
-                
+
                 // Validate inputs
                 if (!isConnected) {
                   throw new Error("Wallet not connected");
@@ -763,7 +768,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
 
                 const amount = parseFloat(bridgedAmount);
                 console.log('Parsed amount:', amount);
-                
+
                 if (isNaN(amount) || amount <= 0) {
                   throw new Error(`Invalid amount: ${bridgedAmount}`);
                 }
@@ -779,7 +784,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
                     console.error('Failed to switch chain:', error);
                     throw new Error(`Failed to switch to Pharos Testnet Atlantic: ${error.message}`);
                   }
-                  
+
                   // Wait 2 seconds after switching chain to allow wallet to sync
                   console.log('Waiting 2 seconds after chain switch for wallet sync...');
                   await new Promise(resolve => setTimeout(resolve, 2000));
@@ -792,7 +797,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
                 console.log('Refetching balances and allowances...');
                 refetchAll();
                 refetchBalances();
-                
+
                 // Small delay to let refetch complete
                 await new Promise(resolve => setTimeout(resolve, 500));
 
@@ -800,7 +805,7 @@ const OrderPanel = ({ selectedAsset, currentPrice }: OrderPanelProps) => {
                 console.log('Executing deposit to Brokex vault with amount:', bridgedAmount);
                 await deposit(bridgedAmount);
                 console.log('Deposit to Brokex successful');
-                
+
                 // Refresh balances after successful deposit
                 setTimeout(() => {
                   refetchAll();
