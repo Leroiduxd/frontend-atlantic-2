@@ -63,7 +63,6 @@ const Index = () => {
         <TradingSection />
 
         {/* Section 2: Positions Management */}
-        <PositionsSection />
       </main>
 
       {/* Le FaucetDialog est rendu en dehors de la structure principale */}

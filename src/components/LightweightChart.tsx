@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useRef, useMemo } from 'react';
 import { 
   createChart, 
@@ -55,7 +57,7 @@ export const LightweightChart = ({ data, positions = [] }: LightweightChartProps
     return value.toFixed(2);
   };
 
-  // Initialisation du graphique (inchangée)
+  // Initialisation du graphique (Mise à jour de la police)
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -71,6 +73,8 @@ export const LightweightChart = ({ data, positions = [] }: LightweightChartProps
         layout: {
           background: { type: ColorType.Solid, color: colors.bg },
           textColor: colors.text,
+          // 🟢 AJOUT DE LA POLICE SOURCE CODE PRO
+          fontFamily: 'Source Code Pro, monospace',
         },
         grid: {
           vertLines: { color: colors.grid, style: 0, visible: true },
@@ -171,11 +175,11 @@ export const LightweightChart = ({ data, positions = [] }: LightweightChartProps
     }
   }, [data]);
 
-  // 🛑 MODIFICATION ICI : Désactive la création des lignes de position.
+  // Lignes de position (Nettoyage de l'ancien code commenté)
   useEffect(() => {
     if (!seriesRef.current) return;
     
-    // Nettoyage des anciennes lignes (doit rester pour retirer celles déjà dessinées)
+    // Nettoyage des anciennes lignes
     priceLinesRef.current.forEach(line => {
       try {
         seriesRef.current.removePriceLine(line);
@@ -185,39 +189,12 @@ export const LightweightChart = ({ data, positions = [] }: LightweightChartProps
     });
     priceLinesRef.current = [];
 
-    // 🔴 RETIRER/COMMENTER LE BLOC SUIVANT POUR DÉSACTIVER LES LIGNES :
-    /*
-    if (!positions || positions.length === 0) return;
-
-    positions.forEach(position => {
-      if (position.entry_x6) { 
-        try {
-          const entryPrice = position.entry_x6 / 1000000;
-          const pnl = position.pnl_usd6 ? position.pnl_usd6 / 1000000 : 0;
-          const pnlText = pnl >= 0 ? `+$${formatPrice(pnl)}` : `-$${formatPrice(Math.abs(pnl))}`;
-          const positionType = position.long_side ? 'LONG' : 'SHORT';
-          
-          const priceLine = seriesRef.current.createPriceLine({
-            price: entryPrice,
-            color: position.long_side ? colors.up : colors.down,
-            lineWidth: 2,
-            lineStyle: 2,
-            axisLabelVisible: true,
-            title: `${positionType} ${pnlText}`,
-          });
-
-          priceLinesRef.current.push(priceLine);
-        } catch (error) {
-          console.error('Error creating price line:', error);
-        }
-      }
-    });
-    */
-    // Fin du bloc commenté.
+    // La logique de création des lignes de position est maintenant complètement désactivée.
+    
   }, [positions, colors]);
 
   return (
-    <div className="w-full h-[calc(100%-3rem)] relative">
+<div className="w-full h-full relative">
       <div ref={chartContainerRef} className="w-full h-full" />
       {data.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center">

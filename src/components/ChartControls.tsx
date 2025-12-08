@@ -96,7 +96,7 @@ export const ChartControls = (props: ChartControlsProps) => {
 
   return (
     // 🛑 AJOUT: z-50 pour s'assurer que cette barre est au-dessus de ChartToolbar (z-40)
-    <div className="absolute bottom-0 left-0 right-0 h-12 bg-chart-bg border-t border-border flex items-center justify-between px-4 gap-4 z-10">
+    <div className="w-full h-full bg-chart-bg flex items-center justify-between px-4 gap-4">
       
       {/* Group 1: Asset Selector & Price Info */}
       <div className="flex items-center gap-4">
