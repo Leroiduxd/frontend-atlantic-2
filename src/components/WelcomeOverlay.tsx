@@ -1,181 +1,266 @@
-"use client";
+import React from 'react';
 
-import { useState, useEffect } from 'react';
-import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+// --- 1. Définition des Types et des Données (Inchangées) ---
 
-// Temps de pause entre chaque compteur
-const INTER_STEP_DELAY = 2000; 
-// Temps de défilement du compteur lui-même
-const SEQUENCE_TIMING = 2000; 
+type AssetType = 'Forex' | 'Tech' | 'Commodity' | 'Crypto';
 
-// ====================================================================
-// 1. COMPOSANT POUR LE DÉFILEMENT DES NOMBRES (maintenu)
-// ====================================================================
-interface CountingNumberProps {
-  end: number;
-  duration?: number;
-  decimals?: number;
-  prefix?: string;
-  suffix?: string;
+interface Asset {
+  id: number;
+  symbol: string;
 }
 
-const CountingNumber: React.FC<CountingNumberProps> = ({ 
-  end, 
-  duration = SEQUENCE_TIMING, // Utilise la constante globale
-  decimals = 0,
-  prefix = "",
-  suffix = "" 
-}) => {
-  const [count, setCount] = useState(0);
+interface ParsedPart {
+  char: string;
+  isBlue: boolean;
+}
 
-  useEffect(() => {
-    let startTime: number;
-    const animate = (timestamp: number) => {
-      if (!startTime) startTime = timestamp;
-      const progress = Math.min((timestamp - startTime) / duration, 1);
-      
-      // Utilisation d'une fonction de lissage (ease-out)
-      const easedProgress = 1 - Math.pow(1 - progress, 3); 
-      const current = easedProgress * end;
-      setCount(current);
-      
-      if (progress < 1) {
-        requestAnimationFrame(animate);
+interface ParsedAsset extends Asset {
+  parts: ParsedPart[];
+}
+
+interface TickerRow {
+  type: AssetType;
+  parsedAssets: ParsedAsset[];
+}
+
+export interface WelcomeOverlayProps {
+  onDismiss?: () => void;
+}
+
+const parseSymbol = (symbol: string): ParsedPart[] => {
+  const parts: ParsedPart[] = [];
+  const regex = /([A-Z0-9])([A-Z0-9]*)/g;
+  const fullMatch = symbol.match(regex);
+
+  if (fullMatch) {
+    for (const part of fullMatch) {
+      if (part.length === 0) continue;
+
+      const firstChar = part[0];
+      const rest = part.substring(1);
+
+      parts.push({ char: firstChar, isBlue: true });
+
+      if (rest.length > 0) {
+        parts.push({ char: rest, isBlue: false });
       }
-    };
-    requestAnimationFrame(animate);
-    return () => { /* Cleanup si nécessaire */ };
-  }, [end, duration]);
+    }
+  }
 
-  // Utilisation de toLocaleString pour les séparateurs (ex: 1,400,000)
-  const formattedCount = Math.floor(count).toLocaleString('en-US', {
-    maximumFractionDigits: decimals,
-    minimumFractionDigits: decimals,
-  });
+  if (parts.length === 0 && symbol.length > 0) {
+    parts.push({ char: symbol[0], isBlue: true });
+    if (symbol.length > 1) {
+      parts.push({ char: symbol.substring(1), isBlue: false });
+    }
+  }
 
-  return (
-    <span className="text-blue-400 font-extrabold block text-4xl lg:text-6xl font-mono">
-      {prefix}{formattedCount}{suffix}
-    </span>
-  );
+  return parts;
 };
 
-
-// ====================================================================
-// 2. COMPOSANT PRINCIPAL DE L'OVERLAY (Séquence fluide)
-// ====================================================================
-interface WelcomeOverlayProps {
-  onDismiss: () => void;
-}
-
-// Les étapes et leur contenu (duration ici est la durée du compteur)
-const STEPS = [
-    // L'étape 1 sert de point de départ du texte simple
-    { id: 1, text: "Brokex Protocol v2 is deployed on Pharos Atlantic Network.", duration: 3000, type: 'TEXT' },
-    // Les étapes STAT utilisent SEQUENCE_TIMING (2000ms) + INTER_STEP_DELAY (550ms)
-    { id: 2, text: "Previous Testnet Success:", duration: SEQUENCE_TIMING, endValue: 1400000, suffix: " Users", type: 'STAT' },
-    { id: 3, text: "Total Unique Trades:", duration: SEQUENCE_TIMING, endValue: 70000000, suffix: " Trades", type: 'STAT' },
-    { id: 4, text: "Total Trading Volume:", duration: SEQUENCE_TIMING, endValue: 35000000000, prefix: "$", suffix: " Volume", type: 'STAT' },
+// Données brutes des actifs (Inchangées)
+const rawFinanceAssets: { type: AssetType; assets: Asset[] }[] = [
+  {
+    type: 'Forex',
+    assets: [
+      { id: 1, symbol: 'EURUSD' },
+      { id: 2, symbol: 'GBPUSD' },
+      { id: 3, symbol: 'USDJPY' },
+      { id: 4, symbol: 'SP500' },
+      { id: 5, symbol: 'NAS100' },
+    ],
+  },
+  {
+    type: 'Tech',
+    assets: [
+      { id: 6, symbol: 'AAPL' },
+      { id: 7, symbol: 'MSFT' },
+      { id: 8, symbol: 'NVDA' },
+      { id: 9, symbol: 'TSLA' },
+      { id: 10, symbol: 'AMZN' },
+    ],
+  },
+  {
+    type: 'Commodity',
+    assets: [
+      { id: 11, symbol: 'XAUUSD' },
+      { id: 12, symbol: 'XAGUSD' },
+      { id: 13, symbol: 'BRENT' },
+      { id: 14, symbol: 'WTI' },
+      { id: 15, symbol: 'NGAS' },
+    ],
+  },
+  {
+    type: 'Crypto',
+    assets: [
+      { id: 16, symbol: 'BTCUSD' },
+      { id: 17, symbol: 'ETHUSD' },
+      { id: 18, symbol: 'SOLUSD' },
+      { id: 19, symbol: 'XRPUSD' },
+      { id: 20, symbol: 'LINK' },
+    ],
+  },
 ];
 
-export const WelcomeOverlay: React.FC<WelcomeOverlayProps> = ({ onDismiss }) => {
-  const [currentStep, setCurrentStep] = useState(0); 
-  const [isVisible, setIsVisible] = useState(false);
+const tickerRows: TickerRow[] = rawFinanceAssets.map(row => ({
+  ...row,
+  parsedAssets: row.assets.map(asset => ({
+    ...asset,
+    parts: parseSymbol(asset.symbol),
+  })),
+}));
 
-  useEffect(() => {
-    let timers: NodeJS.Timeout[] = [];
-    let cumulativeDelay = 500; // Délai initial avant la première étape (fondu entrant)
-    
-    setIsVisible(true); 
+// --- 2. Styles inline (Mise à jour pour la transparence) ---
 
-    // Début de la séquence après le délai initial
-    timers.push(setTimeout(() => setCurrentStep(1), cumulativeDelay));
+const styles = {
+  // Le wrapper ne gère plus la marge, il gère uniquement les dimensions du contenu
+  wrapper: {
+    width: '100%', // Prend toute la largeur de son conteneur parent (le ContentWrapper)
+    height: '100vh',
+    display: 'flex',
+    flexDirection: 'column' as const,
+  },
+  
+  // Nouveau style pour le conteneur du Ticker qui gère la marge et le fond
+  contentWrapper: {
+    // MODIFICATION CLÉ: Applique la couleur de fond ici
+    backgroundColor: '#ffffff', 
+    width: 'calc(100vw - 60px)', 
+    marginLeft: '60px', // La marge transparente de 60px est créée ici
+    height: '100vh',
+    overflow: 'hidden', // Pour s'assurer que le ticker ne déborde pas sur la marge transparente
+  },
 
-    // Calcul du délai total pour les étapes STAT
-    STEPS.forEach((step, index) => {
-        let stepDuration = step.duration; // Temps de défilement (TEXTE) ou de comptage (STAT)
-        
-        // Si c'est une étape STAT, on ajoute le délai de pause après le compteur
-        const pauseTime = step.type === 'STAT' ? INTER_STEP_DELAY : 500; // 500ms pour l'étape TEXTE
+  row: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap' as const,
+  },
 
-        cumulativeDelay += stepDuration;
-        
-        // La prochaine étape commence APRES la durée de l'étape courante PLUS la pause
-        timers.push(setTimeout(() => {
-            if (index < STEPS.length - 1) {
-                 setCurrentStep(STEPS[index + 1].id);
-            }
-        }, cumulativeDelay));
+  asset: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    marginRight: '3vw',
+    fontWeight: 500, 
+    letterSpacing: '0.08em',
+    fontSize: 'clamp(3rem, 12vw, 18rem)',
+  },
 
-        cumulativeDelay += pauseTime;
-    });
+  charBlue: {
+    color: '#2563eb', // Bleu
+  },
 
-    // Fermeture de l'overlay (après la dernière étape + sa pause)
-    timers.push(setTimeout(handleSkip, cumulativeDelay)); 
+  charGrey: {
+    color: '#6b7280', // Gris
+  },
+};
 
-    return () => {
-      timers.forEach(clearTimeout);
-    };
-  }, []); // [] = Se lance une seule fois au montage
+// --- 3. CSS brut pour l’animation et la police variable (Inchangé) ---
 
-  const handleSkip = () => {
-    setIsVisible(false);
-    // Attendre la fin de l'animation de fondu avant de détruire le composant
-    setTimeout(onDismiss, 500); 
-  };
+const TickerStyles = `
+  .doto-style {
+    font-family: "Doto", sans-serif;
+    font-optical-sizing: auto;
+    font-weight: 500; 
+    font-style: normal;
+    font-variation-settings: "ROND" 0;
+  }
 
-  const renderStepContent = () => {
-    const stepData = STEPS.find(s => s.id === currentStep);
-
-    if (!stepData) return null;
-
-    if (stepData.type === 'TEXT') {
-        return (
-            // J'ai retiré 'animate-pulse' pour éliminer le clignotement
-            <h2 className="text-3xl lg:text-5xl font-bold transition-opacity duration-700 text-center">
-                {stepData.text}
-            </h2>
-        );
+  @keyframes scroll-left {
+    0% {
+      transform: translateX(0);
     }
-
-    if (stepData.type === 'STAT') {
-        return (
-            <div className="space-y-4 transition-opacity duration-500">
-                <h3 className="text-xl font-semibold text-gray-300">
-                    {stepData.text}
-                </h3>
-                <CountingNumber 
-                    end={stepData.endValue}
-                    duration={stepData.duration} // Utilise 2000ms
-                    prefix={stepData.prefix}
-                    suffix={stepData.suffix}
-                />
-            </div>
-        );
+    100% {
+      transform: translateX(-50%);
     }
-    
-    return null;
-  };
+  }
 
+  .ticker {
+    display: inline-flex;
+    align-items: center;
+    animation: scroll-left 8s linear infinite; 
+  }
+
+  .row:nth-child(2) .ticker {
+    animation-duration: 10s;
+  }
+
+  .row:nth-child(3) .ticker {
+    animation-duration: 12s;
+  }
+
+  .row:nth-child(4) .ticker {
+    animation-duration: 9s;
+  }
+`;
+
+// --- 4. Petits composants internes (Inchangés) ---
+
+const AssetDisplay: React.FC<ParsedAsset> = ({ symbol, parts }) => {
   return (
-    <div 
-      className={`fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 transition-opacity duration-500 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
-    >
-      {/* Bouton pour fermer/passer */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="absolute top-4 right-4 text-gray-400 hover:text-white hover:bg-white/10"
-        onClick={handleSkip}
-      >
-        <X className="w-6 h-6" />
-      </Button>
-
-      {/* Contenu principal */}
-      <div className="w-full max-w-3xl text-center text-white min-h-[150px] flex items-center justify-center">
-        {renderStepContent()}
-      </div>
+    <div style={styles.asset} aria-label={`Actif: ${symbol}`}>
+      {parts.map((part, index) => (
+        <span
+          key={index}
+          style={part.isBlue ? styles.charBlue : styles.charGrey}
+        >
+          {part.char}
+        </span>
+      ))}
     </div>
   );
 };
+
+const FinanceTicker: React.FC = () => {
+  return (
+    // Le contenu du ticker occupe 100% du contentWrapper
+    <div style={styles.wrapper}>
+      {tickerRows.map(row => (
+        <div key={row.type} style={styles.row} className="row">
+          <div className="ticker">
+            {[...row.parsedAssets, ...row.parsedAssets].map((asset, index) => (
+              <AssetDisplay
+                key={`${row.type}-${asset.id}-${index}`}
+                symbol={asset.symbol}
+                parts={asset.parts}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// --- 5. Composant WelcomeOverlay (le composant principal) ---
+
+export const WelcomeOverlay: React.FC<WelcomeOverlayProps> = ({ onDismiss }) => {
+  return (
+    <>
+      <style>{TickerStyles}</style>
+
+      {/* L'overlay principal n'a PLUS de couleur de fond (bg-white retiré), il est donc transparent. */}
+      {/* Il reste 'fixed inset-0 z-50' pour couvrir l'écran. */}
+      <div className="fixed inset-0 z-50">
+        
+        {/* Conteneur pour le Ticker : gère la marge (transparente) et la couleur de fond du contenu. */}
+        <div style={styles.contentWrapper} className="doto-style">
+          <FinanceTicker />
+        </div>
+
+        {/* Bouton pour fermer l'overlay : positionné de manière absolue PAR RAPPORT à l'overlay transparent. */}
+        {onDismiss && (
+          <button
+            onClick={onDismiss}
+            className="absolute bottom-6 right-6 px-8 py-3 rounded-full bg-black text-white text-lg font-bold tracking-widest transition-opacity hover:opacity-80"
+          >
+            Enter Brokex
+          </button>
+        )}
+      </div>
+    </>
+  );
+};
+
+export default WelcomeOverlay;

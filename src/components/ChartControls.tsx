@@ -215,7 +215,7 @@ export const ChartControls = (props: ChartControlsProps) => {
                       >
                           {/* Icône du réseau */}
                           <img 
-                              src="public/icon.png" 
+                              src="/icon.png" 
                               alt="Network Icon" 
                               className="w-4 h-4 rounded-full" 
                           />
