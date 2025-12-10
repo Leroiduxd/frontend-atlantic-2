@@ -12,10 +12,10 @@ import { useWebSocket, getAssetsByCategory } from "@/hooks/useWebSocket";
 import { useAssetConfig } from "@/hooks/useAssetConfig"; 
 import { Hash } from 'viem'; 
 import { usePaymaster } from "@/hooks/usePaymaster"; 
-import { Edit2, XCircle } from 'lucide-react'; 
+import { Edit2, XCircle, ChevronDown, ChevronUp } from 'lucide-react'; 
 import { useAccount } from 'wagmi'; 
 
-// --- Dépendances et Fonctions Util. (inchangées) ---
+// --- Dépendances et Fonctions Util. ---
 
 const getMarketProof = async (assetId: number): Promise<Hash> => {
     const url = `https://backend.brokex.trade/proof?pairs=${assetId}`;
@@ -35,9 +35,12 @@ interface PositionsSectionProps {
     paymasterEnabled: boolean;
     currentAssetId: number | null;
     currentAssetSymbol?: string;
+    // NOUVELLES PROPS
+    isCollapsed: boolean;
+    onToggleCollapse: () => void;
 }
 
-// --- Composant Carte de Position (Open Positions) - NOUVEAU DESIGN DANS LA FONCTION CI-DESSOUS ---
+// --- Composant Carte de Position (Open Positions) ---
 
 interface PositionCardProps {
     position: any; 
@@ -189,6 +192,8 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   paymasterEnabled,
   currentAssetId,
   currentAssetSymbol,
+  isCollapsed, 
+  onToggleCollapse, 
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>("openPositions");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -344,7 +349,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   }, [filterMode, currentAssetId, enrichedCancelledOrders]);
 
 
-  // --- Logique des handlers (CORRECTION asset_id = 0) ---
+  // --- Logique des handlers ---
 
   const handleClosePosition = async (position: any) => { 
     let toastId: string | number | undefined;
@@ -411,18 +416,44 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
     let toastId: string | number | undefined;
     try {
       let functionName = '';
+      
+      // Conversion pour la méthode traditionnelle (Wagmi)
       const newSLx6 = slPrice ? BigInt(Math.round(Number(slPrice) * 1000000)) : 0n;
       const newTPx6 = tpPrice ? BigInt(Math.round(Number(tpPrice) * 1000000)) : 0n;
+      
       if (!isSLChanged && !isTPChanged) { return; }
       
       if (paymasterEnabled) {
+        // --- 🅰️ MÉTHODE PAYMASTER (Gasless) ---
         toastId = toast({ title: 'Awaiting Signature...', description: 'Please approve the transaction to update stops (Gasless).', duration: 90000, }).id;
-        const txHash = await executeGaslessAction({ type: 'update', id, slPrice: isSLChanged ? Number(slPrice) : undefined, tpPrice: isTPChanged ? Number(tpPrice) : undefined, });
+        
+        // Les valeurs `slPrice` et `tpPrice` sont des strings ici (ou null). 
+        // Le hook Paymaster attend des `number` (ou `undefined` si non modifié).
+        // On utilise `undefined` pour ne pas envoyer la prop si pas de changement, 
+        // ce qui est un peu plus propre que de laisser le hook gérer le `null`.
+
+        const txHash = await executeGaslessAction({ 
+            type: 'update', 
+            id, 
+            slPrice: isSLChanged ? Number(slPrice!) : undefined, // ! est nécessaire car on vérifie isSLChanged
+            tpPrice: isTPChanged ? Number(tpPrice!) : undefined, 
+        });
+        
         toast({ id: toastId, title: 'Update Stops Sent (Gasless)', description: `Transaction pending via Paymaster. Tx Hash: ${txHash.substring(0, 10)}...`, variant: 'default', duration: 5000, });
       } else {
-        if (isSLChanged && isTPChanged) { functionName = 'updateStops'; await updateStops(id, newSLx6, newTPx6); } 
-        else if (isSLChanged) { functionName = 'setSL'; await updateStops(id, newSLx6, null); } 
-        else if (isTPChanged) { functionName = 'setTP'; await updateStops(id, null, newTPx6); }
+        // --- 🅱️ MÉTHODE TRADITIONNELLE (Wagmi) ---
+        if (isSLChanged && isTPChanged) { 
+            functionName = 'updateStops'; 
+            await updateStops(id, newSLx6, newTPx6); 
+        } 
+        else if (isSLChanged) { 
+            functionName = 'setSL'; 
+            await updateStops(id, newSLx6, null); 
+        } 
+        else if (isTPChanged) { 
+            functionName = 'setTP'; 
+            await updateStops(id, null, newTPx6); 
+        }
         toastId = toast({ title: "TP/SL updated", description: `Position ${id}: Stops updated via ${functionName}.`, }).id;
       }
       setTimeout(() => refetch(), 2000);
@@ -434,7 +465,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   };
   
   const openEditDialog = (position: any) => { 
-    if (paymasterLoading) {
+    if (paymasterLoading) { // 👈 AJOUT DE LA VÉRIFICATION DU CHARGEMENT
       toast({ title: "Action Pending", description: "Please wait for the current Paymaster transaction to finish.", variant: "default" });
       return;
     }
@@ -468,211 +499,245 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   ]);
 
 
-  const isActionDisabled = paymasterLoading;
+  const isActionDisabled = paymasterLoading; // 👈 DÉFINITION DE L'ÉTAT DÉSACTIVÉ
 
   return (
-    // Note: La police Source Code Pro doit être chargée globalement (e.g., dans _app.tsx ou layout.tsx)
     <section id="positions" className="flex flex-col justify-start p-0 w-full h-full bg-white font-['Source_Code_Pro',_monospace]">
       
-      {/* 🛑 Barre 1 (Tabs/Filtres) : Z-INDEX AJUSTÉ (z-20 -> z-10) */}
+      {/* 🛑 Barre 1 (Tabs/Filtres) : HAUTEUR FIXE POUR LE MODE RÉDUIT */}
       <div className="flex justify-between items-center border-b border-gray-200 flex-shrink-0 bg-white h-9 sticky top-0 z-10">
         
-        {/* Tabs Navigation (Côté Gauche) */}
+        {/* Tabs Navigation (Côté Gauche) - VISIBLE EN PERMANENCE */}
         <div className="flex justify-start space-x-0 bg-transparent h-full">
-          {tabConfig.map((tab) => (
+            {tabConfig.map((tab) => (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`h-full py-0 px-4 rounded-none text-[11px] font-semibold transition duration-200 border-b-2 ${ 
+                key={tab.id}
+                onClick={() => {
+                    setActiveTab(tab.id);
+                    // Si on était réduit et qu'on clique sur un tab, on déplie
+                    if (isCollapsed) {
+                        onToggleCollapse();
+                    }
+                }}
+                className={`h-full py-0 px-4 rounded-none text-[11px] font-semibold transition duration-200 border-b-2 ${ 
                 activeTab === tab.id
-                  ? "text-gray-900 border-gray-900"
-                  : "text-gray-500 hover:bg-gray-100 border-transparent"
-              }`}
+                    ? "text-gray-900 border-gray-900"
+                    : "text-gray-500 hover:bg-gray-100 border-transparent"
+                }`}
             >
-              {tab.label}
+                {tab.label}
             </button>
-          ))}
+            ))}
         </div>
         
-        {/* Filtres (Côté Droit) */}
+        {/* Filtres (Côté Droit) + Bouton de Bascule (COMPACT) */}
         <div className="flex items-center space-x-3 pr-4 text-[11px] font-medium"> 
-          <div className="flex items-center bg-gray-100 rounded-md overflow-hidden border border-gray-200">
-            <button
-              type="button"
-              onClick={() => setFilterMode("all")}
-              className={`px-2 py-0.5 text-[11px] ${ 
-                filterMode === "all"
-                  ? "bg-white text-gray-900 font-semibold"
-                  : "text-gray-500 hover:bg-gray-200"
-              }`}
-            >
-              All
-            </button>
-            <button
-              type="button"
-              onClick={() => setFilterMode("asset")}
-              disabled={currentAssetId === null}
-              className={`px-2 py-0.5 text-[11px] border-l border-gray-200 ${ 
-                filterMode === "asset"
-                  ? "bg-white text-gray-900 font-semibold"
-                  : "text-gray-500 hover:bg-gray-200"
-              } ${currentAssetId === null ? "opacity-50 cursor-not-allowed" : ""}`}
-            >
-              {currentAssetSymbol || "Asset"}
-            </button>
-          </div>
+            
+            {/* Bloc All/Asset + Bouton de Bascule intégré */}
+            <div className="flex items-center bg-gray-100 rounded-md overflow-hidden border border-gray-200">
+                
+                {/* 1. Bouton All */}
+                <button
+                type="button"
+                onClick={() => setFilterMode("all")}
+                className={`px-2 py-0.5 text-[11px] ${ 
+                    filterMode === "all"
+                    ? "bg-white text-gray-900 font-semibold"
+                    : "text-gray-500 hover:bg-gray-200"
+                }`}
+                >
+                All
+                </button>
+                
+                {/* 2. Bouton Asset */}
+                <button
+                type="button"
+                onClick={() => setFilterMode("asset")}
+                disabled={currentAssetId === null}
+                className={`px-2 py-0.5 text-[11px] border-l border-gray-200 ${ 
+                    filterMode === "asset"
+                    ? "bg-white text-gray-900 font-semibold"
+                    : "text-gray-500 hover:bg-gray-200"
+                } ${currentAssetId === null ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
+                {currentAssetSymbol || "Asset"}
+                </button>
+                
+                {/* 3. BOUTON DE BASCULE (COLLAPSE/EXPAND) - COMPACT */}
+                <button
+                    onClick={onToggleCollapse} 
+                    className={`h-full px-2 py-0.5 text-[11px] border-l border-gray-200 transition duration-150 hover:bg-gray-200 flex items-center justify-center ${
+                         // Style pour simuler la même hauteur/largeur compacte que les autres boutons
+                        isCollapsed ? 'text-gray-900 bg-white' : 'text-gray-500'
+                    }`}
+                    aria-expanded={!isCollapsed}
+                    aria-controls="positions-content"
+                    title={isCollapsed ? "Expand Positions" : "Collapse Positions"}
+                >
+                    {isCollapsed ? (
+                    <ChevronUp className="w-4 h-4" /> 
+                    ) : (
+                    <ChevronDown className="w-4 h-4" />
+                    )}
+                </button>
+            </div>
         </div>
       </div>
 
-      {/* Conteneur du Contenu Scrollable. */}
-      <div className="flex-grow p-0 overflow-y-auto bg-white">
+      {/* Conteneur du Contenu Scrollable (Conditionnel). */}
+      {!isCollapsed && (
+        <div 
+          id="positions-content" 
+          className="flex-grow p-0 overflow-y-auto bg-white"
+        >
 
-        {/* 1. Rendu des Positions Ouvertes (LISTE DE CARTES COMPACTES) */}
-        {activeTab === "openPositions" && (
-            <div className="space-y-0 divide-y divide-gray-200">
-                {filteredPositions.length > 0 ? (
-                    filteredPositions.map((position) => (
-                        <PositionCard
-                            key={position.id}
-                            position={position}
-                            isActionDisabled={isActionDisabled}
-                            handleClosePosition={handleClosePosition}
-                            openEditDialog={openEditDialog}
-                            formatPrice={formatPrice}
-                        />
-                    ))
-                ) : (
-                    <div className="flex justify-center items-center h-full text-gray-500 p-4">
-                        No open positions found.
-                    </div>
-                )}
-            </div>
-        )}
+          {/* 1. Rendu des Positions Ouvertes (LISTE DE CARTES COMPACTES) */}
+          {activeTab === "openPositions" && (
+              <div className="space-y-0 divide-y divide-gray-200">
+                  {filteredPositions.length > 0 ? (
+                      filteredPositions.map((position) => (
+                          <PositionCard
+                              key={position.id}
+                              position={position}
+                              isActionDisabled={isActionDisabled}
+                              handleClosePosition={handleClosePosition}
+                              openEditDialog={openEditDialog}
+                              formatPrice={formatPrice}
+                          />
+                      ))
+                  ) : (
+                      <div className="flex justify-center items-center h-full text-gray-500 p-4">
+                          No open positions found.
+                      </div>
+                  )}
+              </div>
+          )}
 
 
-        {/* 2. Rendu des Autres Onglets (TABLEAUX CLASSIQUES - Version Claire) */}
-        {(activeTab === "pendingOrders" || activeTab === "closedPositions" || activeTab === "cancelledOrders") && (
-            <>
-            {currentData.length > 0 ? (
-                <div className="overflow-x-auto"> 
-                    <table className="min-w-full divide-y divide-gray-200 text-gray-900">
-                       
-                       <thead className="sticky top-0 bg-white border-b border-gray-200 z-10">
+          {/* 2. Rendu des Autres Onglets (TABLEAUX CLASSIQUES - Version Claire) */}
+          {(activeTab === "pendingOrders" || activeTab === "closedPositions" || activeTab === "cancelledOrders") && (
+              <>
+              {currentData.length > 0 ? (
+                  <div className="overflow-x-auto"> 
+                      <table className="min-w-full divide-y divide-gray-200 text-gray-900">
                          
-                         {activeTab === "pendingOrders" && (
-                            <tr>
-                              <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Pair</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Created</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Type / Side</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Size</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Limit Price</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Margin</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">TP/SL</th>
-                              <th className="pr-4 pl-3 py-1.5 text-right text-[11px] font-medium uppercase tracking-wider text-gray-500">Action</th>
-                            </tr>
-                         )}
-                         {activeTab === "closedPositions" && (
-                            <tr>
-                              <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Pair</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Open Time</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Close Time</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Side / Lev.</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Entry Price</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">P&L Net</th>
-                              <th className="pr-4 pl-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Margin</th>
-                            </tr>
-                         )}
-                         {activeTab === "cancelledOrders" && (
-                            <tr>
-                              <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Pair</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Created</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Cancelled</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-lighter text-gray-500">Type / Side</th>
-                              <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Price</th>
-                              <th className="pr-4 pl-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Amount</th>
-                            </tr>
-                         )}
-                       </thead>
-                       <tbody className="divide-y divide-gray-200">
-                         {/* Contenu pour Pending Orders */}
-                         {activeTab === "pendingOrders" && filteredOrders.map((order) => (
-                            <tr key={order.id} className="hover:bg-gray-100 transition duration-100">
-                              <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{order.assetSymbol || 'N/A'}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.created_at)}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px]">
-                                Limit / <span className={order.long_side ? "text-blue-600 font-bold" : "text-red-600 font-bold"}> 
-                                  {order.long_side ? "LONG" : "SHORT"}
-                                </span>
-                              </td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{order.size}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">{formatPrice(order.target_x6, order.asset_id)}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">${formatPrice(order.margin_usd6, order.asset_id)}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">
-                                TP: {order.tp_x6 ? formatPrice(order.tp_x6, order.asset_id) : 'N/A'}
-                                <br />
-                                SL: {order.sl_x6 ? formatPrice(order.sl_x6, order.asset_id) : 'N/A'}
-                              </td>
-                              <td className="pr-4 pl-3 py-1.5 whitespace-nowrap text-right text-[11px] font-medium">
-                                <Button
-                                  onClick={() => handleCancelOrder(order.id)} 
-                                  disabled={isActionDisabled}
-                                  variant="secondary"
-                                  size="sm"
-                                  className={`text-[11px] font-semibold h-7 px-3 ${isActionDisabled ? 'bg-gray-300 text-gray-500' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
-                                >
-                                  Cancel
-                                </Button>
-                              </td>
-                            </tr>
-                         ))}
-                         {/* Contenu pour Closed Positions */}
-                         {activeTab === "closedPositions" && filteredClosedPositions.map((position) => {
-                          const isPNLPositive = position.pnl_usd6 !== null && position.pnl_usd6 > 0;
-                          
-                          return (
-                            <tr key={position.id} className="hover:bg-gray-100 transition duration-100">
-                              <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{position.assetSymbol || 'N/A'}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(position.created_at)}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(position.updated_at)}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">
-                                <span className={position.long_side ? "text-blue-600 font-bold" : "text-red-600 font-bold"}> 
-                                    {position.long_side ? "Long" : "Short"}
-                                </span> / {position.leverage_x}x
-                              </td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{formatPrice(position.entry_x6, position.asset_id)}</td>
-                              <td className={`px-3 py-1.5 whitespace-nowrap text-[11px] font-bold ${isPNLPositive ? 'text-blue-600' : 'text-red-600'}`}>
-                                {position.pnl_usd6 ? `$${formatPrice(position.pnl_usd6, position.asset_id)}` : '-'}
-                              </td>
-                              <td className="pr-4 pl-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">${formatPrice(position.margin_usd6, position.asset_id)}</td>
-                            </tr>
-                          );
-                         })}
-                         {/* Contenu pour Cancelled Orders */}
-                         {activeTab === "cancelledOrders" && filteredCancelledOrders.map((order) => (
-                            <tr key={order.id} className="hover:bg-gray-100 transition duration-100">
-                              <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{order.assetSymbol || 'N/A'}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.created_at)}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.updated_at)}</td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">
-                                Limit / <span className={order.long_side ? "text-blue-600 font-bold" : "text-red-600 font-bold"}> 
-                                  {order.long_side ? "LONG" : "SHORT"}
-                                </span>
-                              </td>
-                              <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">{formatPrice(order.target_x6, order.asset_id)}</td>
-                              <td className="pr-4 pl-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">${formatPrice(order.margin_usd6, order.asset_id)}</td>
-                            </tr>
-                         ))}
-                       </tbody>
-                    </table>
-                </div>
-            ) : (
-                <div className="flex justify-center items-center h-full text-gray-500 p-4">
-                    No {activeTab.replace(/([A-Z])/g, ' $1').toLowerCase()} found.
-                </div>
-            )}
-            </>
-        )}
-      </div>
+                         <thead className="sticky top-0 bg-white border-b border-gray-200 z-10">
+                           
+                           {activeTab === "pendingOrders" && (
+                              <tr>
+                                <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Pair</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Created</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Type / Side</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Size</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Limit Price</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Margin</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">TP/SL</th>
+                                <th className="pr-4 pl-3 py-1.5 text-right text-[11px] font-medium uppercase tracking-wider text-gray-500">Action</th>
+                              </tr>
+                           )}
+                           {activeTab === "closedPositions" && (
+                              <tr>
+                                <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Pair</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Open Time</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Close Time</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Side / Lev.</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Entry Price</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">P&L Net</th>
+                                <th className="pr-4 pl-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Margin</th>
+                              </tr>
+                           )}
+                           {activeTab === "cancelledOrders" && (
+                              <tr>
+                                <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Pair</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Created</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Cancelled</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-lighter text-gray-500">Type / Side</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Price</th>
+                                <th className="pr-4 pl-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Amount</th>
+                              </tr>
+                           )}
+                         </thead>
+                         <tbody className="divide-y divide-gray-200">
+                           {/* Contenu pour Pending Orders */}
+                           {activeTab === "pendingOrders" && filteredOrders.map((order) => (
+                              <tr key={order.id} className="hover:bg-gray-100 transition duration-100">
+                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{order.assetSymbol || 'N/A'}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.created_at)}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px]">
+                                  Limit / <span className={order.long_side ? "text-blue-600 font-bold" : "text-red-600 font-bold"}> 
+                                    {order.long_side ? "LONG" : "SHORT"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{order.size}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">{formatPrice(order.target_x6, order.asset_id)}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">${formatPrice(order.margin_usd6, order.asset_id)}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">
+                                  TP: {order.tp_x6 ? formatPrice(order.tp_x6, order.asset_id) : 'N/A'}
+                                  <br />
+                                  SL: {order.sl_x6 ? formatPrice(order.sl_x6, order.asset_id) : 'N/A'}
+                                </td>
+                                <td className="pr-4 pl-3 py-1.5 whitespace-nowrap text-right text-[11px] font-medium">
+                                  <Button
+                                    onClick={() => handleCancelOrder(order.id)} 
+                                    disabled={isActionDisabled}
+                                    variant="secondary"
+                                    size="sm"
+                                    className={`text-[11px] font-semibold h-7 px-3 ${isActionDisabled ? 'bg-gray-300 text-gray-500' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </td>
+                              </tr>
+                           ))}
+                           {/* Contenu pour Closed Positions */}
+                           {activeTab === "closedPositions" && filteredClosedPositions.map((position) => {
+                            const isPNLPositive = position.pnl_usd6 !== null && position.pnl_usd6 > 0;
+                            
+                            return (
+                              <tr key={position.id} className="hover:bg-gray-100 transition duration-100">
+                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{position.assetSymbol || 'N/A'}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(position.created_at)}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(position.updated_at)}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">
+                                  <span className={position.long_side ? "text-blue-600 font-bold" : "text-red-600 font-bold"}> 
+                                      {position.long_side ? "Long" : "Short"}
+                                  </span> / {position.leverage_x}x
+                                </td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{formatPrice(position.entry_x6, position.asset_id)}</td>
+                                <td className={`px-3 py-1.5 whitespace-nowrap text-[11px] font-bold ${isPNLPositive ? 'text-blue-600' : 'text-red-600'}`}>
+                                  {position.pnl_usd6 ? `$${formatPrice(position.pnl_usd6, position.asset_id)}` : '-'}
+                                </td>
+                                <td className="pr-4 pl-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">${formatPrice(position.margin_usd6, position.asset_id)}</td>
+                              </tr>
+                            );
+                           })}
+                           {/* Contenu pour Cancelled Orders */}
+                           {activeTab === "cancelledOrders" && filteredCancelledOrders.map((order) => (
+                              <tr key={order.id} className="hover:bg-gray-100 transition duration-100">
+                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{order.assetSymbol || 'N/A'}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.created_at)}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.updated_at)}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">
+                                  Limit / <span className={order.long_side ? "text-blue-600 font-bold" : "text-red-600 font-bold"}> 
+                                    {order.long_side ? "LONG" : "SHORT"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">{formatPrice(order.target_x6, order.asset_id)}</td>
+                                <td className="pr-4 pl-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">${formatPrice(order.margin_usd6, order.asset_id)}</td>
+                              </tr>
+                           ))}
+                         </tbody>
+                      </table>
+                  </div>
+              ) : (
+                  <div className="flex justify-center items-center h-full text-gray-500 p-4">
+                      No {activeTab.replace(/([A-Z])/g, ' $1').toLowerCase()} found.
+                  </div>
+              )}
+              </>
+          )}
+        </div>
+      )}
 
       {/* Edit Stops Dialog (Reste inchangé) */}
       {selectedPosition && (
@@ -688,7 +753,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
           priceStep={selectedPosition.priceStep}
           priceDecimals={selectedPosition.priceDecimals}
           onConfirm={handleUpdateStopsLogic} 
-          disabled={paymasterLoading}
+          disabled={paymasterLoading} // 👈 TRANSMISSION DE L'ÉTAT DU PAYMASTER
         />
       )}
     </section>
