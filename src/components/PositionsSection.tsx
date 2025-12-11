@@ -12,8 +12,7 @@ import { useWebSocket, getAssetsByCategory } from "@/hooks/useWebSocket";
 import { useAssetConfig } from "@/hooks/useAssetConfig"; 
 import { Hash } from 'viem'; 
 import { usePaymaster } from "@/hooks/usePaymaster"; 
-import { Edit2, XCircle, ChevronDown, ChevronUp } from 'lucide-react'; 
-import { useAccount } from 'wagmi'; 
+import { ChevronDown, ChevronUp } from 'lucide-react'; 
 
 // --- Dépendances et Fonctions Util. ---
 
@@ -27,15 +26,12 @@ const getMarketProof = async (assetId: number): Promise<Hash> => {
     return proof as Hash; 
 };
 
-// ... (formatTimeUntil reste inchangée, non utilisée ici)
-
 type TabType = "openPositions" | "pendingOrders" | "closedPositions" | "cancelledOrders";
 
 interface PositionsSectionProps {
     paymasterEnabled: boolean;
     currentAssetId: number | null;
     currentAssetSymbol?: string;
-    // NOUVELLES PROPS
     isCollapsed: boolean;
     onToggleCollapse: () => void;
 }
@@ -48,15 +44,17 @@ interface PositionCardProps {
     handleClosePosition: (position: any) => Promise<void>;
     openEditDialog: (position: any) => void;
     formatPrice: (valueX6: number, assetId: number) => string;
+    getDisplaySymbol: (assetSymbol: string, assetId: number) => string; // Prop pour le symbole
 }
 
-// Nouvelle implémentation de PositionCard (Design final demandé)
+// Nouvelle implémentation de PositionCard
 const PositionCard: React.FC<PositionCardProps> = ({ 
     position, 
     isActionDisabled, 
     handleClosePosition, 
     openEditDialog,
-    formatPrice 
+    formatPrice,
+    getDisplaySymbol // Utilisé ici
 }) => {
     const isPNLPositive = position.calculatedPNL !== null && position.calculatedPNL >= 0;
     const pnlUsdText = position.calculatedPNL !== null ? position.calculatedPNL.toFixed(2) : '---';
@@ -71,17 +69,19 @@ const PositionCard: React.FC<PositionCardProps> = ({
     const tpPriceFormatted = position.tp_x6 ? formatPrice(position.tp_x6, position.asset_id) : 'None';
     const slPriceFormatted = position.sl_x6 ? formatPrice(position.sl_x6, position.asset_id) : 'None';
     
-    // Margin Ratio (bleu/rouge uniquement)
-    const marginRatioValue = position.margin_ratio_percent ? position.margin_ratio_percent.toFixed(2) : '4.61';
-    const marginRatioText = marginRatioValue ? `${marginRatioValue}%` : '---';
-    const marginRatioColor = isPNLPositive ? 'text-blue-600' : 'text-red-600'; // Utilise le bleu ou le rouge pour la marge
-
+    // NOUVEAU: Affichage du symbole selon la règle
+    const symbolDisplay = getDisplaySymbol(position.assetSymbol, position.asset_id);
+    
+    // NOUVEAU: Affichage de la Marge (margin_usd6)
+    const marginUsdText = position.margin_usd6 ? `$${formatPrice(position.margin_usd6, position.asset_id)}` : '---';
+    
+    // Déterminer le symbole de base pour "Size (XXX)"
+    const baseSymbol = position.assetSymbol.split('/')[0];
+    
     // Date/Time
     const openDate = position.created_at ? format(new Date(position.created_at), "yyyy-MM-dd") : '---';
 
-
     return (
-        // Utilisation de styles inline pour Source Code Pro car c'est un composant React
         <div className="bg-white p-4 border-b border-gray-200 text-xs flex flex-col gap-3 font-['Source_Code_Pro',_monospace]"> 
             
             {/* 🛑 TOP SECTION: Pair, Side/Leverage (Left) vs PNL/ROE (Right) */}
@@ -89,7 +89,7 @@ const PositionCard: React.FC<PositionCardProps> = ({
                 
                 {/* BLOC GAUCHE HAUT: Pair, Side, Leverage */}
                 <div className="flex items-center gap-3 min-w-0">
-                    <span className="font-extrabold text-lg text-gray-900 truncate">{position.assetSymbol.split('/')[0]}-USD</span>
+                    <span className="font-extrabold text-lg text-gray-900 truncate">{symbolDisplay}</span> {/* Utilise le nouveau symbole */}
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${sideClass} flex-shrink-0`}> 
                         {position.long_side ? 'LONG' : 'SHORT'} {position.leverage_x}x
                     </span>
@@ -127,14 +127,15 @@ const PositionCard: React.FC<PositionCardProps> = ({
                     </div>
                     
                     <div>
-                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Size ({position.assetSymbol.split('/')[0]})</span>
+                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Size ({baseSymbol})</span>
                         <span className="text-gray-900 text-xs font-semibold block">{position.size}</span>
                     </div>
 
                     {/* LIGNE 2 STOP/DATES */}
+                    {/* CORRIGÉ: Affiche Margin (USD) à la place du Margin Ratio */}
                     <div>
-                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Margin Ratio</span>
-                        <span className={`text-xs font-semibold block ${marginRatioColor}`}>{marginRatioText}</span>
+                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Margin (USD)</span>
+                        <span className="text-xs font-semibold block text-gray-900">{marginUsdText}</span>
                     </div>
 
                     <div>
@@ -215,7 +216,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
         const powerOfTen = Math.round(Math.log10(1000000 / config.tick_size_usd6)); 
         const decimals = Math.max(0, powerOfTen);
         map[config.asset_id] = { 
-            symbol: `${config.symbol}/USD`, 
+            symbol: `${config.symbol}/USD`, // C'est le format que la configuration d'actif utilise (ex: BTC/USD)
             baseSymbol: config.symbol,     
             priceDecimals: decimals,
             priceStep: 1 / (10 ** decimals),
@@ -238,25 +239,41 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
     }, {} as { [id: number]: { currentPrice: number | null; pair: string } });
   }, [wsData]);
 
-  const formatPrice = (valueX6: number, assetId: number) => {
+  /**
+   * Formate la valeur x6 (en $10^{-6}$) en une chaîne de prix affichable.
+   * @param valueX6 La valeur à diviser par 1,000,000.
+   * @param assetId L'ID de l'actif pour les décimales de prix.
+   */
+  const formatPrice = (valueX6: number, assetId: number): string => {
     const assetInfo = assetSymbolMap[assetId];
     if (!assetInfo || valueX6 === 0) return "0.00";
     const value = valueX6 / 1000000;
+    // On utilise toFixed pour s'assurer du bon nombre de décimales, puis on enlève les zéros superflus
     const formatted = value.toFixed(assetInfo.priceDecimals);
     return parseFloat(formatted).toString(); 
   };
   
+  /**
+   * Détermine le symbole d'affichage basé sur l'ID de l'actif selon la règle utilisateur.
+   * @param assetSymbol Symbole original (ex: BTC/USD).
+   * @param assetId ID de l'actif.
+   */
+  const getDisplaySymbol = (assetSymbol: string, assetId: number): string => {
+      const baseSymbol = assetSymbol.split('/')[0];
+      if (assetId <= 1000) {
+          // Règle Crypto (ID <= 1000) : Symbole de base + /USD
+          return `${baseSymbol}/USD`;
+      } else {
+          // Règle Autres (ID > 1000) : Symbole tel quel (qui est déjà BTC/USD, EUR/USD, etc. dans assetSymbolMap)
+          return assetSymbol; 
+      }
+  };
+  
   const formatDate = (dateStr: string) => {
-    // Utilisation de la date complète pour l'affichage dans le tableau
     try { return format(new Date(dateStr), "yyyy-MM-dd HH:mm"); } 
     catch { return dateStr; }
   };
   
-  const formatDateOnly = (dateStr: string) => {
-    // Format plus court pour la carte Open Date
-    try { return format(new Date(dateStr), "yyyy-MM-dd"); } 
-    catch { return dateStr; }
-  };
 
   const calculatePNL = (position: any, currentPrice: number | null) => {
     if (currentPrice === null || position.entry_x6 === 0) { return { pnl: null, roe: null }; }
@@ -281,30 +298,11 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
         calculatedROE: null, 
         priceDecimals: 2, 
         priceStep: 0.01, 
-        margin_ratio_percent: null,
       };
     }
     const currentPriceFloat = assetWsInfo?.currentPrice || null;
     const { pnl, roe } = calculatePNL(position, currentPriceFloat);
     
-    // Calcul (ou simulation) du Margin Ratio pour l'affichage de la carte
-    let marginRatioPercent = null;
-    if (currentPriceFloat !== null && position.entry_x6 > 0) {
-        const collateral = position.margin_usd6 / 1000000;
-        const unrealizedPNL = pnl || 0;
-        const totalEquity = collateral + unrealizedPNL;
-        
-        const notionalValue = (position.lots / 1000000) * currentPriceFloat; 
-        
-        const marginUsed = notionalValue / position.leverage_x;
-        if (marginUsed > 0) {
-            marginRatioPercent = (totalEquity / marginUsed) * 100;
-        } else {
-            marginRatioPercent = null; 
-        }
-    }
-
-
     return {
       ...position,
       assetSymbol: assetSymbolInfo.symbol, 
@@ -316,7 +314,6 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
       priceStep: assetSymbolInfo.priceStep,
       entryPriceFloat: position.entry_x6 / 1000000,
       liqPriceFloat: position.liq_x6 / 1000000,
-      margin_ratio_percent: marginRatioPercent,
     };
   };
 
@@ -349,12 +346,11 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   }, [filterMode, currentAssetId, enrichedCancelledOrders]);
 
 
-  // --- Logique des handlers ---
+  // --- Logique des handlers (inchangée) ---
 
   const handleClosePosition = async (position: any) => { 
     let toastId: string | number | undefined;
     try {
-      // ✅ FIX: Vérifie si asset_id est strictement null ou undefined, mais accepte 0.
       if (position.asset_id === undefined || position.asset_id === null) {
         console.error("Position data missing asset_id:", position);
         throw new Error("Asset ID is missing for the position.");
@@ -371,7 +367,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
         const txHash = await executeGaslessAction({
             type: 'close',
             positionId: position.id,
-            assetId, // Utilisez l'ID converti
+            assetId, 
         });
         toast({
             id: toastId,
@@ -381,7 +377,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
             duration: 5000,
         });
       } else {
-        const proof = await getMarketProof(assetId); // Utilisez l'ID converti
+        const proof = await getMarketProof(assetId); 
         await closePosition(position.id, proof); 
         toastId = toast({ title: "Position closed", description: "Your position has been closed successfully.", }).id;
       }
@@ -417,7 +413,6 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
     try {
       let functionName = '';
       
-      // Conversion pour la méthode traditionnelle (Wagmi)
       const newSLx6 = slPrice ? BigInt(Math.round(Number(slPrice) * 1000000)) : 0n;
       const newTPx6 = tpPrice ? BigInt(Math.round(Number(tpPrice) * 1000000)) : 0n;
       
@@ -427,15 +422,10 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
         // --- 🅰️ MÉTHODE PAYMASTER (Gasless) ---
         toastId = toast({ title: 'Awaiting Signature...', description: 'Please approve the transaction to update stops (Gasless).', duration: 90000, }).id;
         
-        // Les valeurs `slPrice` et `tpPrice` sont des strings ici (ou null). 
-        // Le hook Paymaster attend des `number` (ou `undefined` si non modifié).
-        // On utilise `undefined` pour ne pas envoyer la prop si pas de changement, 
-        // ce qui est un peu plus propre que de laisser le hook gérer le `null`.
-
         const txHash = await executeGaslessAction({ 
             type: 'update', 
             id, 
-            slPrice: isSLChanged ? Number(slPrice!) : undefined, // ! est nécessaire car on vérifie isSLChanged
+            slPrice: isSLChanged ? Number(slPrice!) : undefined, 
             tpPrice: isTPChanged ? Number(tpPrice!) : undefined, 
         });
         
@@ -465,7 +455,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   };
   
   const openEditDialog = (position: any) => { 
-    if (paymasterLoading) { // 👈 AJOUT DE LA VÉRIFICATION DU CHARGEMENT
+    if (paymasterLoading) { 
       toast({ title: "Action Pending", description: "Please wait for the current Paymaster transaction to finish.", variant: "default" });
       return;
     }
@@ -499,7 +489,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   ]);
 
 
-  const isActionDisabled = paymasterLoading; // 👈 DÉFINITION DE L'ÉTAT DÉSACTIVÉ
+  const isActionDisabled = paymasterLoading; 
 
   return (
     <section id="positions" className="flex flex-col justify-start p-0 w-full h-full bg-white font-['Source_Code_Pro',_monospace]">
@@ -567,7 +557,6 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                 <button
                     onClick={onToggleCollapse} 
                     className={`h-full px-2 py-0.5 text-[11px] border-l border-gray-200 transition duration-150 hover:bg-gray-200 flex items-center justify-center ${
-                         // Style pour simuler la même hauteur/largeur compacte que les autres boutons
                         isCollapsed ? 'text-gray-900 bg-white' : 'text-gray-500'
                     }`}
                     aria-expanded={!isCollapsed}
@@ -603,6 +592,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                               handleClosePosition={handleClosePosition}
                               openEditDialog={openEditDialog}
                               formatPrice={formatPrice}
+                              getDisplaySymbol={getDisplaySymbol} 
                           />
                       ))
                   ) : (
@@ -630,7 +620,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                                 <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Type / Side</th>
                                 <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Size</th>
                                 <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Limit Price</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Margin</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Margin (USD)</th> {/* MIS À JOUR: Colonne */}
                                 <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">TP/SL</th>
                                 <th className="pr-4 pl-3 py-1.5 text-right text-[11px] font-medium uppercase tracking-wider text-gray-500">Action</th>
                               </tr>
@@ -661,7 +651,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                            {/* Contenu pour Pending Orders */}
                            {activeTab === "pendingOrders" && filteredOrders.map((order) => (
                               <tr key={order.id} className="hover:bg-gray-100 transition duration-100">
-                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{order.assetSymbol || 'N/A'}</td>
+                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{getDisplaySymbol(order.assetSymbol, order.asset_id) || 'N/A'}</td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.created_at)}</td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px]">
                                   Limit / <span className={order.long_side ? "text-blue-600 font-bold" : "text-red-600 font-bold"}> 
@@ -670,6 +660,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                                 </td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{order.size}</td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">{formatPrice(order.target_x6, order.asset_id)}</td>
+                                {/* CORRIGÉ: Affiche Margin (USD) */}
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">${formatPrice(order.margin_usd6, order.asset_id)}</td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">
                                   TP: {order.tp_x6 ? formatPrice(order.tp_x6, order.asset_id) : 'N/A'}
@@ -695,7 +686,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                             
                             return (
                               <tr key={position.id} className="hover:bg-gray-100 transition duration-100">
-                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{position.assetSymbol || 'N/A'}</td>
+                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{getDisplaySymbol(position.assetSymbol, position.asset_id) || 'N/A'}</td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(position.created_at)}</td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(position.updated_at)}</td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">
@@ -714,7 +705,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                            {/* Contenu pour Cancelled Orders */}
                            {activeTab === "cancelledOrders" && filteredCancelledOrders.map((order) => (
                               <tr key={order.id} className="hover:bg-gray-100 transition duration-100">
-                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{order.assetSymbol || 'N/A'}</td>
+                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{getDisplaySymbol(order.assetSymbol, order.asset_id) || 'N/A'}</td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.created_at)}</td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.updated_at)}</td>
                                 <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">
@@ -753,7 +744,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
           priceStep={selectedPosition.priceStep}
           priceDecimals={selectedPosition.priceDecimals}
           onConfirm={handleUpdateStopsLogic} 
-          disabled={paymasterLoading} // 👈 TRANSMISSION DE L'ÉTAT DU PAYMASTER
+          disabled={paymasterLoading} 
         />
       )}
     </section>

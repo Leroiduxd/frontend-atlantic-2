@@ -9,11 +9,14 @@ import { useChartData } from "@/hooks/useChartData";
 import { usePositions } from "@/hooks/usePositions";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import PositionsSection from "./PositionsSection"; 
+import { BottomBar } from "../components/BottomBar"; 
+// import { HealthStatusPanel } from "../components/HealthStatusPanel"; // <-- CECI DOIT ÊTRE RETIRÉ
 
 // --- Constantes de Hauteur ---
-const MIN_HEIGHT = 36; // Hauteur minimale de la barre de titre de PositionsSection (h-9)
+const MIN_HEIGHT = 36; 
+const FOOTER_HEIGHT = 34; 
 
-// ➡️ MODIFICATION: Utilisation de '30%' pour la hauteur déployée
+// ➡️ Hauteur déployée de la section Positions
 const INITIAL_HEIGHT_PERCENTAGE = '37%'; 
 
 const TradingSection = () => {
@@ -69,77 +72,87 @@ const TradingSection = () => {
   
   const finalCurrentPrice = currentWsPrice || aggregatedCurrentPrice;
 
-  // ➡️ MODIFICATION: Définition conditionnelle de la hauteur pour le rendu
-  // Soit la hauteur minimale en pixels, soit le pourcentage
-  const finalHeight = isPositionsCollapsed ? `${MIN_HEIGHT}px` : INITIAL_HEIGHT_PERCENTAGE; 
+  // Définition conditionnelle de la hauteur pour PositionsSection
+  const finalPositionsHeight = isPositionsCollapsed ? `${MIN_HEIGHT}px` : INITIAL_HEIGHT_PERCENTAGE; 
 
-  // ----------------------------------------------------
-  // 🔴 LOGIQUE DE GLISSEMENT (DRAGGING) RETIRÉE
-  // ----------------------------------------------------
 
   return (
-    <section id="trading" className="snap-section flex h-screen w-full">
-      {/* 🧱 Colonne gauche : Controls + Chart + Positions */}
-      <div 
-        id="trading-column-left" 
-        className="bg-chart-bg flex-grow h-full flex flex-col overflow-x-hidden"
-      >
+    // Conteneur principal qui prend toute la hauteur de l'écran (h-screen)
+    // et gère la disposition verticale des sections (Trading + BottomBar)
+    <div className="h-screen w-full flex flex-col"> 
         
-        {/* 1️⃣ Barre pair / prix / timeframes (Hauteur fixe : h-12) */}
-        <div className="h-12 border-b border-border">
-          <ChartControls
-            selectedAsset={selectedAsset}
-            onAssetChange={setSelectedAsset}
-            selectedTimeframe={selectedTimeframe}
-            onTimeframeChange={setSelectedTimeframe}
-            priceChange={priceChange}
-            priceChangePercent={priceChangePercent}
-            currentPrice={aggregatedCurrentPrice}
-          />
-        </div>
-
-        {/* 2️⃣ Graphique (Prend tout l'espace restant : flex-1) */}
-        {/* Le fait que le graphique soit flex-1 garantit qu'il prend l'espace restant 
-            après que la barre de contrôles (h-12) et la section des positions (hauteur dynamique)
-            ont pris leur place dans le flex-col parent (h-full). */}
-        <div className="flex-1 min-h-0">
-          <LightweightChart 
-            data={data} 
-            positions={positions} 
-            isPositionsCollapsed={isPositionsCollapsed} 
-          />
-        </div>
-        
-        {/* 3️⃣ Positions (Hauteur DYNAMIQUE contrôlée par finalHeight) */}
-        <div 
-          style={{ height: finalHeight }} // 👈 Utilise '30%' (déployé) ou '36px' (réduit)
-          className="border-t border-border bg-white overflow-hidden transition-height duration-300 ease-in-out" 
+        {/* 1. Section Trading (Graphique + Order Panel) : Prend la hauteur restante (`flex-1`) */}
+        <section 
+            id="trading" 
+            className="snap-section flex flex-1 w-full min-h-0" 
         >
-          <div className="w-full h-full">
-            <PositionsSection 
-              paymasterEnabled={paymasterEnabled}
-              currentAssetId={selectedAsset.id}
-              currentAssetSymbol={selectedAsset.symbol.split("/")[0]}
-              // 👉 PROPS DE CONTRÔLE DE LA RÉDUCTION
-              isCollapsed={isPositionsCollapsed}
-              onToggleCollapse={() => {
-                // La logique de bascule simple est rétablie
-                setIsPositionsCollapsed(prev => !prev);
-              }}
+            {/* 🧱 Colonne gauche : Controls + Chart + Positions */}
+            <div 
+                id="trading-column-left" 
+                className="bg-chart-bg flex-grow h-full flex flex-col overflow-x-hidden"
+            >
+                
+                {/* 1️⃣ Barre pair / prix / timeframes (Hauteur fixe : h-12) */}
+                <div className="h-12 border-b border-border">
+                    <ChartControls
+                        selectedAsset={selectedAsset}
+                        onAssetChange={setSelectedAsset} 
+                        selectedTimeframe={selectedTimeframe}
+                        onTimeframeChange={setSelectedTimeframe}
+                        priceChange={priceChange}
+                        priceChangePercent={priceChangePercent}
+                        currentPrice={aggregatedCurrentPrice}
+                    />
+                </div>
+
+                {/* 2️⃣ Graphique (Prend tout l'espace restant : flex-1) */}
+                <div className="flex-1 min-h-0">
+                    <LightweightChart 
+                        data={data} 
+                        positions={positions} 
+                        isPositionsCollapsed={isPositionsCollapsed} 
+                    />
+                </div>
+                
+                {/* 3️⃣ Positions (Hauteur DYNAMIQUE contrôlée par finalPositionsHeight) */}
+                <div 
+                    style={{ height: finalPositionsHeight }} 
+                    className="border-t border-border bg-white overflow-hidden transition-height duration-300 ease-in-out" 
+                >
+                    <div className="w-full h-full">
+                        <PositionsSection 
+                            paymasterEnabled={paymasterEnabled}
+                            currentAssetId={selectedAsset.id}
+                            currentAssetSymbol={selectedAsset.symbol.split("/")[0]}
+                            isCollapsed={isPositionsCollapsed}
+                            onToggleCollapse={() => {
+                                setIsPositionsCollapsed(prev => !prev);
+                            }}
+                        />
+                    </div>
+                </div>
+
+            </div>
+
+            {/* 🧱 Colonne droite : Order Panel */}
+            <OrderPanel 
+                selectedAsset={selectedAsset} 
+                currentPrice={finalCurrentPrice}
+                paymasterEnabled={paymasterEnabled}
+                onTogglePaymaster={() => setPaymasterEnabled(prev => !prev)}
             />
-          </div>
-        </div>
+        </section>
 
-      </div>
+        {/* 2. Pied de Page (BottomBar) : Hauteur fixe 34px */}
+        <BottomBar 
+            onAssetSelect={setSelectedAsset} 
+            currentAssetId={selectedAsset.id} 
+        />
 
-      {/* 🧱 Colonne droite : Order Panel */}
-      <OrderPanel 
-        selectedAsset={selectedAsset} 
-        currentPrice={finalCurrentPrice}
-        paymasterEnabled={paymasterEnabled}
-        onTogglePaymaster={() => setPaymasterEnabled(prev => !prev)}
-      />
-    </section>
+        {/* NOUVEAU: Panneau de Statut Fixe - RETIRÉ */}
+        {/* <HealthStatusPanel /> */} 
+
+    </div>
   );
 };
 

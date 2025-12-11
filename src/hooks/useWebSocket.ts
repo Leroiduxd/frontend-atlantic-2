@@ -1,3 +1,5 @@
+// hooks/useWebSocket.ts
+
 import { useState, useEffect, useRef } from 'react';
 
 export interface InstrumentData {
@@ -94,7 +96,8 @@ export const getAssetsByCategory = (data: WebSocketMessage) => {
     .map(([pair, pairData]) => ({
       id: pairData.id,
       name: pairData.name,
-      symbol: pair.toUpperCase().replace('_', '/'),
+      // Utilisation du format Pair pour le symbole
+      symbol: pair.toUpperCase().includes('_') ? pair.toUpperCase().replace('_', '/') : pair.toUpperCase(), 
       pair: pair,
       currentPrice: pairData.instruments[0]?.currentPrice || '0',
       change24h: pairData.instruments[0]?.["24h_change"] || '0',

@@ -1,4 +1,5 @@
-import React from 'react';
+// WelcomeOverlay.tsx
+import React, { useEffect } from 'react';
 
 // --- 1. Définition des Types et des Données (Inchangées) ---
 
@@ -109,25 +110,22 @@ const tickerRows: TickerRow[] = rawFinanceAssets.map(row => ({
   })),
 }));
 
-// --- 2. Styles inline (Mise à jour pour la transparence) ---
+// --- 2. Styles inline (Inchangés) ---
 
 const styles = {
-  // Le wrapper ne gère plus la marge, il gère uniquement les dimensions du contenu
   wrapper: {
-    width: '100%', // Prend toute la largeur de son conteneur parent (le ContentWrapper)
+    width: '100%', 
     height: '100vh',
     display: 'flex',
     flexDirection: 'column' as const,
   },
   
-  // Nouveau style pour le conteneur du Ticker qui gère la marge et le fond
   contentWrapper: {
-    // MODIFICATION CLÉ: Applique la couleur de fond ici
     backgroundColor: '#ffffff', 
     width: 'calc(100vw - 60px)', 
-    marginLeft: '60px', // La marge transparente de 60px est créée ici
+    marginLeft: '60px', 
     height: '100vh',
-    overflow: 'hidden', // Pour s'assurer que le ticker ne déborde pas sur la marge transparente
+    overflow: 'hidden', 
   },
 
   row: {
@@ -214,7 +212,6 @@ const AssetDisplay: React.FC<ParsedAsset> = ({ symbol, parts }) => {
 
 const FinanceTicker: React.FC = () => {
   return (
-    // Le contenu du ticker occupe 100% du contentWrapper
     <div style={styles.wrapper}>
       {tickerRows.map(row => (
         <div key={row.type} style={styles.row} className="row">
@@ -236,22 +233,50 @@ const FinanceTicker: React.FC = () => {
 // --- 5. Composant WelcomeOverlay (le composant principal) ---
 
 export const WelcomeOverlay: React.FC<WelcomeOverlayProps> = ({ onDismiss }) => {
+  
+  // NOUVELLE LOGIQUE : Gérer l'appui sur la touche Entrée
+  useEffect(() => {
+    if (!onDismiss) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Vérifie si la touche appuyée est "Enter" ou "Return"
+      if (event.key === 'Enter') {
+        // Empêche l'action par défaut du navigateur (souvent l'envoi de formulaire)
+        event.preventDefault(); 
+        
+        // Simule le clic sur le bouton
+        onDismiss();
+      }
+    };
+
+    // Ajoute l'écouteur d'événement au document
+    document.addEventListener('keydown', handleKeyDown);
+
+    // Nettoie l'écouteur lors du démontage du composant
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onDismiss]); // Dépend de onDismiss pour se reconfigurer si la fonction change (peu probable ici)
+
   return (
     <>
       <style>{TickerStyles}</style>
 
-      {/* L'overlay principal n'a PLUS de couleur de fond (bg-white retiré), il est donc transparent. */}
-      {/* Il reste 'fixed inset-0 z-50' pour couvrir l'écran. */}
+      {/* L'overlay principal */}
       <div className="fixed inset-0 z-50">
         
-        {/* Conteneur pour le Ticker : gère la marge (transparente) et la couleur de fond du contenu. */}
+        {/* Conteneur pour le Ticker */}
         <div style={styles.contentWrapper} className="doto-style">
           <FinanceTicker />
         </div>
 
-        {/* Bouton pour fermer l'overlay : positionné de manière absolue PAR RAPPORT à l'overlay transparent. */}
+        {/* Bouton pour fermer l'overlay */}
         {onDismiss && (
           <button
+            // J'ajoute un `autoFocus` pour que le bouton soit sélectionné par défaut
+            // et que la touche `Enter` fonctionne nativement s'il est focus.
+            // Cependant, l'écouteur `document.addEventListener('keydown')` est plus fiable
+            // pour garantir que l'Enter fonctionne sans qu'un focus soit nécessaire.
             onClick={onDismiss}
             className="absolute bottom-6 right-6 px-8 py-3 rounded-full bg-black text-white text-lg font-bold tracking-widest transition-opacity hover:opacity-80"
           >
