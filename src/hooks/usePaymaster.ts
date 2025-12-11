@@ -3,7 +3,7 @@ import { useAccount, useWalletClient, usePublicClient } from 'wagmi';
 
 // --- CONFIGURATION CONSTANTS ---
 const API_BASE = "https://paymaster.brokex.trade";
-const PAYMASTER_CONTRACT = "0x32da95857ea09Ec3347B59C4869f0D076E6a2957";
+const PAYMASTER_CONTRACT = "0x4E70926ef4f07482Ecf3717f3669aA4dB188E38d";
 
 // ABI Spécifique pour le Paymaster (Domain + Nonces)
 const PAYMASTER_ABI = [

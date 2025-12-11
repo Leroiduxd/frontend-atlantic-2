@@ -1,7 +1,7 @@
 export const VAULT_ADDRESS = '0x19e9e0c71b672aaaadee26532da80d330399fa11' as const;
 export const TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b' as const;
 // ADRESSE TRADING INCHANGÉE
-export const TRADING_ADDRESS = '0xb449fd01fa7937d146e867b995c261e33c619292' as const;
+export const TRADING_ADDRESS = '0xED853d3fD0da9b6c218124407419a47e5F9d8cC3' as const;
 
 export const VAULT_ABI = [
   {
