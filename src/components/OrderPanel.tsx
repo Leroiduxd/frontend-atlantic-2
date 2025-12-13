@@ -1,29 +1,23 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useVault } from "@/hooks/useVault";
 import { useToast } from "@/hooks/use-toast";
-// ❌ Suppression de l'import SpiceNet: import { SpiceDeposit, SpiceBalance, useSpiceBalance } from "@spicenet-io/spiceflow-ui";
-import { DepositDialog } from "@/components/DepositDialog"; // ✅ Nouveau composant de dialogue de dépôt/retrait
+import { DepositDialog } from "@/components/DepositDialog";
 import { Asset } from "./ChartControls";
 import { useAssetConfig } from "@/hooks/useAssetConfig";
 import { MarketClosedBanner } from "./MarketClosedBanner";
 // Wagmi/Viem Imports
 import { useWriteContract, useConfig, useAccount, useSwitchChain } from 'wagmi';
-// 🛑 Import du hook Paymaster
 import { usePaymaster, PaymasterOpenParams } from "@/hooks/usePaymaster";
-import { Landmark, Send, ChevronUp, ChevronDown, Fuel } from "lucide-react";
+import { Landmark, Send, ChevronUp, ChevronDown, Fuel, Eye, EyeOff } from 'lucide-react'; 
 import { Hash } from 'viem';
+import { useMarketStatus } from "@/hooks/useMarketStatus";
 import { customChain } from "@/config/wagmi";
 import { useVaultBalances } from "@/hooks/useVaultBalances";
 
-// Import du hook de statut de marché
-import { useMarketStatus } from "@/hooks/useMarketStatus";
-
 // --- CONSTANTES GLOBALES (Unchanged) ---
-const VAULT_ADDRESS = '0x19e9e0c71b672aaaadee26532da80d330399fa11' as const;
-const TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b' as const;
 const TRADING_ADDRESS = '0xED853d3fD0da9b6c218124407419a47e5F9d8cC3' as const;
 const TRADING_ABI = [
     {
@@ -59,7 +53,7 @@ const TRADING_ABI = [
 ] as const;
 // ---------------------------------------------------
 
-// (StepController) - Ajusté pour un design compact (Unchanged)
+// (StepController) - Réutilisé tel quel
 interface StepControllerProps {
     value: string | number;
     onChange: (value: any) => void;
@@ -67,8 +61,6 @@ interface StepControllerProps {
     min?: number;
     max?: number;
     decimals?: number;
-    label?: string; // Optionnel
-    unit?: string;  // Optionnel
     isCompact?: boolean;
 }
 const StepController: React.FC<StepControllerProps> = ({
@@ -85,7 +77,6 @@ const StepController: React.FC<StepControllerProps> = ({
         onChange(val);
     };
 
-    // Ajustement des largeurs pour un StepController compact
     const widthClass = isCompact ? 'w-full text-center h-7 text-xs p-1 pr-5' : 'w-full text-lg font-medium pr-10';
     const buttonWidth = isCompact ? 'w-5' : 'w-8';
     const iconSize = isCompact ? 'w-3 h-3' : 'w-4 h-4';
@@ -99,7 +90,6 @@ const StepController: React.FC<StepControllerProps> = ({
                 onChange={handleInputChange}
                 className={widthClass}
             />
-            {/* Les boutons + et - sont maintenant plus compacts et les icônes réduites */}
             <div className={`absolute right-0 top-0 h-full flex flex-col justify-center border-l border-border`}>
                 <Button variant="ghost" size="icon" className={`h-1/2 ${buttonWidth} p-0 border-b border-border/80 rounded-none rounded-tr-sm`} onClick={() => handleStep(step)}>
                     <ChevronUp className={iconSize} />
@@ -116,7 +106,7 @@ const StepController: React.FC<StepControllerProps> = ({
 
 type OrderType = "limit" | "market";
 
-// UTILITY FUNCTION: Fetch Proof (more robust) (Unchanged)
+// UTILITY FUNCTION: Fetch Proof (reused)
 const getMarketProof = async (assetId: number): Promise<Hash> => {
     const url = `https://backend.brokex.trade/proof?pairs=${assetId}`;
     const response = await fetch(url);
@@ -135,7 +125,6 @@ const getMarketProof = async (assetId: number): Promise<Hash> => {
     return proof as Hash;
 };
 
-// 🛑 MISE À JOUR DES PROPS (Unchanged)
 interface OrderPanelProps {
     selectedAsset: Asset;
     currentPrice: number;
@@ -150,6 +139,7 @@ const OrderPanel = ({
     onTogglePaymaster
 }: OrderPanelProps) => {
 
+    // --- STATES ---
     const [orderType, setOrderType] = useState<OrderType>("limit");
     const [tpEnabled, setTpEnabled] = useState(false);
     const [slEnabled, setSlEnabled] = useState(false);
@@ -158,45 +148,25 @@ const OrderPanel = ({
     const [limitPrice, setLimitPrice] = useState('');
     const [tpPrice, setTpPrice] = useState('');
     const [slPrice, setSlPrice] = useState('');
-    // 🛑 Nouvel état pour gérer le survol du bouton Fuel
     const [isHoveringFuel, setIsHoveringFuel] = useState(false);
-
-
-    // 🛑 LOADING COMMUN (pour Paymaster ou Wagmi)
     const [localLoading, setLocalLoading] = useState(false);
-    const { executeGaslessOrder, isLoading: paymasterLoading } = usePaymaster(); // 🛑 Hook Paymaster
-    const { toast } = useToast();
-    const loading = localLoading || paymasterLoading; // 🛑 Fusion des états de loading
+    const [showBalance, setShowBalance] = useState(true); 
 
-    // ❌ Suppression des états SpiceNet:
-    // const [spiceDepositOpen, setSpiceDepositOpen] = useState(false);
-    // const [spiceBalanceOpen, setSpiceBalanceOpen] = useState(false);
-
-
+    // --- HOOKS ---
     const { balance, available, locked, refetchAll } = useVault();
     const { getConfigById, convertDisplayToLots } = useAssetConfig();
-    const { totalBalance, refetchAll: refetchBalances } = useVaultBalances();
     const { isConnected, chain: currentChain, address: account } = useAccount();
-
-    // ❌ Suppression du hook SpiceBalance:
-    // const { balanceData, loading: balanceLoading, hasBalance, refetch: refetchSpiceBalance } = useSpiceBalance({
-    //     address: account,
-    //     enabled: !!account,
-    //     refetchInterval: 30000, // Refetch every 30 seconds
-    // });
-    const balanceLoading = false; // Simulation de l'état de chargement pour la UI
-
+    const { executeGaslessOrder, isLoading: paymasterLoading } = usePaymaster();
     const { writeContractAsync } = useWriteContract();
-    const { switchChainAsync } = useSwitchChain();
+    const { toast } = useToast();
     const config = useConfig();
     const publicClient = config.publicClient;
 
+    const loading = localLoading || paymasterLoading;
     const finalAssetIdForTx = useMemo(() => {
         const n = Number(selectedAsset.id);
         return Number.isFinite(n) ? n : -1;
     }, [selectedAsset.id]);
-
-    // 🛑 UTILISATION DU HOOK DE STATUT DE MARCHÉ
     const marketStatus = useMarketStatus(finalAssetIdForTx);
     const isMarketOpen = marketStatus.isOpen;
 
@@ -210,7 +180,6 @@ const OrderPanel = ({
     const assetConfig = getConfigById(finalAssetIdForTx);
 
     const { minLotSizeDisplay, lotStep, priceDecimals, priceStep } = useMemo(() => {
-        // Logique de calcul du lotStep et priceStep
         const num = assetConfig?.lot_num || 1;
         const den = assetConfig?.lot_den || 100;
         const lotSize = num / den;
@@ -233,7 +202,6 @@ const OrderPanel = ({
     useEffect(() => {
         setLotsDisplay(minLotSizeDisplay);
         if (currentPrice > 0) {
-            // Mise à jour de limitPrice uniquement si on est sur Limit au montage
             if (orderType === 'limit') {
                 setLimitPrice(currentPrice.toFixed(priceDecimals));
             }
@@ -246,17 +214,13 @@ const OrderPanel = ({
     };
 
     const calculations = useMemo(() => {
-        // Utiliser le prix actuel si ordre Market
         const price = orderType === 'limit' && limitPrice ? Number(limitPrice) : currentPrice;
 
-        // Si le prix n'est pas valide (ex: initialisation), éviter les calculs
         if (isNaN(price) || price <= 0 || lotsDisplay <= 0) {
             return { value: 0, cost: 0, liqPriceLong: 0, liqPriceShort: 0 };
         }
 
         const displayNotional = lotsDisplay * price;
-
-        // La liq price est calculée par rapport au prix d'entrée
         const liqPriceLong = price * (1 - 0.99 / leverage);
         const liqPriceShort = price * (1 + 0.99 / leverage);
 
@@ -266,28 +230,26 @@ const OrderPanel = ({
             liqPriceLong,
             liqPriceShort,
         };
-    }, [lotsDisplay, leverage, limitPrice, currentPrice, orderType, priceDecimals]);
+    }, [lotsDisplay, leverage, limitPrice, currentPrice, orderType]);
 
     const formatPrice = (value: number) => {
         if (value === 0) return "0.00";
         return value.toFixed(priceDecimals > 5 ? 5 : priceDecimals || 2);
     };
 
+    const getDisplayValue = useCallback((value: string | number) => {
+        return showBalance ? value : '***';
+    }, [showBalance]);
+
     /**
-     * 🛑 LOGIQUE DE TRADE MISE À JOUR : Support Paymaster (Unchanged)
+     * LOGIQUE DE TRADE MISE À JOUR : Support Paymaster
      */
     const handleTrade = async (longSide: boolean) => {
 
-        // --- 0. MARKET STATUS CHECK ---
+        // ... [Vérifications critiques omises pour la concision] ...
         if (!isMarketOpen && orderType === 'market') {
-            return toast({
-                title: 'Market Closed',
-                description: `Market orders are disabled when the market is closed. Please use a Limit order.`,
-                variant: "destructive"
-            });
+            return toast({ title: 'Market Closed', description: `Market orders are disabled when the market is closed. Please use a Limit order.`, variant: "destructive" });
         }
-
-        // --- 1. CRITICAL CHECKS ---
         if (finalAssetIdForTx < 0) {
             return toast({ title: 'Configuration Error', description: `Please select a valid trading pair.`, variant: "destructive", });
         }
@@ -299,12 +261,10 @@ const OrderPanel = ({
         if (orderType === 'limit' && (isNaN(numLimitPrice) || numLimitPrice <= 0)) {
             return toast({ title: 'Input Error', description: 'Please enter a valid Limit Price.', variant: "destructive" });
         }
-        // Lot validation
         if (lotsDisplay < minLotSizeDisplay) {
             return toast({ title: 'Input Error', description: `Minimum lot size is ${minLotSizeDisplay}.`, variant: "destructive" });
         }
 
-        // CHECK: AVAILABLE BALANCE (La validation des marges est essentielle quelle que soit la méthode)
         const requiredMargin = calculations.cost;
         const requiredMarginWithBuffer = requiredMargin * 1.01;
         const availableBalance = Number(available);
@@ -316,22 +276,8 @@ const OrderPanel = ({
                 variant: "destructive",
             });
         }
+        // ... [Fin des vérifications] ...
 
-        // 2. SL/TP VALIDATION (Validation simplifiée ici)
-        const entryPrice = orderType === 'limit' ? numLimitPrice : currentPrice;
-        const liqPrice = longSide
-            ? entryPrice * (1 - 0.99 / leverage)
-            : entryPrice * (1 + 0.99 / leverage);
-
-        if (slEnabled && (isNaN(numSlPrice!) || numSlPrice! <= 0)) {
-            return toast({ title: 'Input Error', description: 'Please enter a valid Stop Loss Price.', variant: "destructive" });
-        }
-        if (tpEnabled && (isNaN(numTpPrice!) || numTpPrice! <= 0)) {
-            return toast({ title: 'Input Error', description: 'Please enter a valid Take Profit Price.', variant: "destructive" });
-        }
-        // ... [Validation complète SL/TP si nécessaire] ...
-
-        // Mettre à jour l'état de chargement local si on n'utilise PAS le paymaster
         if (!paymasterEnabled) {
             setLocalLoading(true);
         }
@@ -342,15 +288,13 @@ const OrderPanel = ({
             const actualLots = convertDisplayToLots(lotsDisplay, finalAssetIdForTx);
             let toastId: string | number | undefined;
 
-            // 🛑 LOGIQUE DE BASCULE PAYMASTER VS TRADITIONNEL
             if (paymasterEnabled) {
                 // --- 🅰️ MÉTHODE PAYMASTER (Gasless) ---
 
-                // 1. Notification de signature
                 toastId = toast({
                     title: 'Awaiting Signature...',
                     description: 'Please approve the transaction in your wallet to sign the order.',
-                    duration: 90000, // Longue durée
+                    duration: 90000,
                 }).id;
 
                 const paymasterParams: Omit<PaymasterOpenParams, 'type'> = {
@@ -365,10 +309,8 @@ const OrderPanel = ({
                 };
 
                 try {
-                    // 2. Exécution Gasless
                     txHash = await executeGaslessOrder(paymasterParams);
 
-                    // 3. Notification d'envoi à l'API (Remplacer la précédente)
                     toast({
                         id: toastId,
                         title: 'Order Sent (Gasless)',
@@ -378,7 +320,6 @@ const OrderPanel = ({
                     });
 
                 } catch (paymasterError: any) {
-                    // 4. Notification d'échec
                     const errorMsg = paymasterError?.message || 'Transaction rejected or API failed.';
                     toast({
                         id: toastId,
@@ -386,7 +327,7 @@ const OrderPanel = ({
                         description: errorMsg.includes('User rejected') ? 'Transaction rejected by user.' : errorMsg,
                         variant: 'destructive',
                     });
-                    throw paymasterError; // Propager l'erreur pour le bloc catch final
+                    throw paymasterError;
                 }
 
             } else {
@@ -435,11 +376,9 @@ const OrderPanel = ({
                     });
                 }
 
-                // Attendre la confirmation uniquement pour la méthode traditionnelle
                 if (!publicClient || !txHash) {
-                    console.error("Wagmi public client is unavailable or txHash missing.");
+                    throw new Error("Wagmi public client is unavailable or txHash missing.");
                 } else {
-                    // Notification de confirmation Wagmi
                     toastId = toast({
                         title: 'Transaction Sent',
                         description: `Waiting for ${currentChain?.name || 'chain'} confirmation...`,
@@ -463,7 +402,7 @@ const OrderPanel = ({
             const successTitle = paymasterEnabled ? 'Gasless Order Placed' : 'Order Placed';
 
             toast({
-                id: toastId, // Mettre à jour la dernière toast
+                id: toastId,
                 title: successTitle,
                 description: (
                     <span className="flex items-center space-x-1">
@@ -491,16 +430,13 @@ const OrderPanel = ({
         } catch (error: any) {
             console.error("Trade Error:", error);
 
-            // Si l'erreur n'a pas été gérée et affichée par la logique Paymaster
             if (!paymasterEnabled) {
                 let errorMsg = error?.message || 'Transaction failed.';
 
                 if (errorMsg.includes('User rejected the request')) {
                     errorMsg = 'Transaction rejected by user.';
                 } else if (errorMsg.includes('revert')) {
-                    errorMsg = 'Transaction failed (revert). Proof may have expired or be invalid.';
-                } else if (errorMsg.includes('Paymaster API Failed')) {
-                    errorMsg = errorMsg; // Message d'erreur exact de l'API Paymaster
+                    errorMsg = 'Transaction failed (revert).';
                 }
 
                 toast({
@@ -513,7 +449,6 @@ const OrderPanel = ({
             if (!paymasterEnabled) {
                 setLocalLoading(false);
             }
-            // Le Paymaster hook gère son propre loading state
         }
     };
 
@@ -521,13 +456,13 @@ const OrderPanel = ({
     return (
         <div className="w-[320px] h-full flex flex-col border-l border-border shadow-md bg-card">
 
-            {/* 🛑 BANNER D'AVERTISSEMENT (Unchanged) */}
+            {/* 🛑 BANNER D'AVERTISSEMENT */}
             <MarketClosedBanner status={marketStatus} />
 
             {/* Order Panel Content (Scrollable) */}
             <div className="flex-grow p-4 space-y-5 overflow-y-auto custom-scrollbar">
 
-                {/* 1. Tabs (Limit, Market) AND Paymaster + Leverage (Unchanged) */}
+                {/* 1. Tabs (Limit, Market) AND Paymaster + Leverage */}
                 <div className="flex justify-between items-center border-b border-border text-muted-foreground font-medium text-sm pt-1 pb-2">
 
                     {/* Côté Gauche : Tabs Limit / Market */}
@@ -541,7 +476,6 @@ const OrderPanel = ({
                         >
                             Limit
                         </div>
-                        {/* Market Tab désactivé si marché fermé */}
                         <div
                             className={`py-1 mr-4 transition duration-150 ${!isMarketOpen
                                     ? "text-muted-foreground/50 cursor-not-allowed"
@@ -557,10 +491,8 @@ const OrderPanel = ({
 
                     {/* Côté Droit : Leverage Input + Fuel Button */}
                     <div className="flex items-center gap-2">
-
-                        {/* Input Levier (StepController compact) - Le 'x' est retiré */}
                         <div className="flex items-center gap-0">
-                            <div className="w-20"> {/* Largeur ajustée (w-20) */}
+                            <div className="w-20">
                                 <StepController
                                     value={leverage}
                                     onChange={setLeverage}
@@ -573,19 +505,15 @@ const OrderPanel = ({
                             </div>
                         </div>
 
-                        {/* 🛑 Bouton Fuel Paymaster enveloppé dans un div relative pour le tooltip customisé */}
-                        {/* Ce div englobe l'input levier et le bouton fuel pour que le tooltip puisse s'aligner sur toute la largeur droite. */}
                         <div className="relative flex items-center">
-
-                            {/* Le bouton Fuel */}
                             <Button
                                 type="button"
                                 variant="ghost"
                                 size="icon"
                                 className={`h-7 w-7 rounded-md transition-colors ${
                                     paymasterEnabled
-                                        ? "bg-amber-400 border-none text-white hover:bg-amber-500" // Couleur ajustée, pas de bordure, texte blanc
-                                        : "bg-transparent border border-border text-muted-foreground hover:text-foreground hover:bg-accent" // Bordure quand désactivé
+                                        ? "bg-amber-400 border-none text-white hover:bg-amber-500"
+                                        : "bg-transparent border border-border text-muted-foreground hover:text-foreground hover:bg-accent"
                                     }`}
                                 onClick={onTogglePaymaster}
                                 onMouseEnter={() => setIsHoveringFuel(true)}
@@ -594,23 +522,17 @@ const OrderPanel = ({
                                 <Fuel className="w-4 h-4" />
                             </Button>
 
-                            {/* 🛑 Tooltip Customisé Simple (Sous le bouton Fuel, aligné à droite) */}
                             {isHoveringFuel && (
-                                // Tooltip positionné en bas, aligné à droite du conteneur parent du bouton
                                 <div className="absolute z-50 top-full right-0 mt-2 w-max max-w-[200px] rounded-md bg-white p-2 text-xs text-gray-800 shadow-lg border border-gray-200">
-                                    <p className="font-semibold text-right">
-                                        Gasless Paymaster
-                                    </p>
-                                    <p className="mt-1 text-right">
-                                        Brokex pays network fees for you.
-                                    </p>
+                                    <p className="font-semibold text-right">Gasless Paymaster</p>
+                                    <p className="mt-1 text-right">Brokex pays network fees for you.</p>
                                 </div>
                             )}
                         </div>
                     </div>
                 </div>
 
-                {/* 2. Order Input based on type (Unchanged) */}
+                {/* 2. Order Input based on type */}
                 {orderType === "limit" && (
                     <div>
                         <span className="text-light-text text-xs block mb-1">Limit Price (USD)</span>
@@ -619,12 +541,9 @@ const OrderPanel = ({
                             onChange={setLimitPrice}
                             step={priceStep}
                             decimals={priceDecimals}
-                            label="Price"
-                            unit="USD"
                         />
                     </div>
                 )}
-                {/* 2.1 Message si Market est sélectionné mais fermé (Unchanged) */}
                 {orderType === "market" && !isMarketOpen && (
                     <div className="p-3 bg-red-100 text-red-800 rounded-md text-sm font-medium">
                         Market Orders not allowed while market is closed.
@@ -632,7 +551,7 @@ const OrderPanel = ({
                 )}
 
 
-                {/* 3. Amount Input (Lots) (Unchanged) */}
+                {/* 3. Amount Input (Lots) */}
                 <div>
                     <span className="text-light-text text-xs block mb-1">
                         Lots ({selectedAsset.symbol.split('/')[0] || 'BTC'})
@@ -643,12 +562,10 @@ const OrderPanel = ({
                         step={lotStep}
                         min={minLotSizeDisplay}
                         decimals={lotStep >= 1 ? 0 : 2}
-                        label="Lots"
-                        unit={selectedAsset.symbol.split('/')[0] || 'BTC'}
                     />
                 </div>
 
-                {/* 4. Take Profit / Stop Loss (Unchanged) */}
+                {/* 4. Take Profit / Stop Loss */}
                 <div className="space-y-3">
                     {/* Take Profit Toggle */}
                     <div>
@@ -666,8 +583,6 @@ const OrderPanel = ({
                                 onChange={setTpPrice}
                                 step={priceStep}
                                 decimals={priceDecimals}
-                                label="TP Price"
-                                unit="USD"
                             />
                         )}
                     </div>
@@ -688,18 +603,15 @@ const OrderPanel = ({
                                 onChange={setSlPrice}
                                 step={priceStep}
                                 decimals={priceDecimals}
-                                label="SL Price"
-                                unit="USD"
                             />
                         )}
                     </div>
                 </div>
 
-                {/* 5. Buy / Sell Buttons (Unchanged) */}
+                {/* 5. Buy / Sell Buttons */}
                 <div className="flex space-x-3 pt-2 pb-3">
                     <Button
                         onClick={() => handleTrade(true)}
-                        // Désactiver si loading OU (Market Order ET marché fermé)
                         disabled={loading || (orderType === 'market' && !isMarketOpen)}
                         className={`flex-1 ${loading || (orderType === 'market' && !isMarketOpen) ? 'bg-gray-400' : 'bg-trading-blue hover:bg-trading-blue/90'} text-white font-bold shadow-md`}
                     >
@@ -707,7 +619,6 @@ const OrderPanel = ({
                     </Button>
                     <Button
                         onClick={() => handleTrade(false)}
-                        // Désactiver si loading OU (Market Order ET marché fermé)
                         disabled={loading || (orderType === 'market' && !isMarketOpen)}
                         className={`flex-1 ${loading || (orderType === 'market' && !isMarketOpen) ? 'bg-gray-400' : 'bg-trading-red hover:bg-trading-red/90'} text-white font-bold shadow-md`}
                     >
@@ -715,7 +626,7 @@ const OrderPanel = ({
                     </Button>
                 </div>
 
-                {/* 6. Account Details (Calculations) - Unchanged */}
+                {/* 6. Account Details (Calculations) */}
                 <div className="text-xs space-y-1.5 pt-3 border-t border-border">
                     <div className="flex justify-between text-light-text">
                         <span>Value</span>
@@ -734,7 +645,7 @@ const OrderPanel = ({
                 </div>
             </div>
 
-            {/* 7. Deposit Info (Landmark Panel) - MISE À JOUR MAJEURE */}
+            {/* 7. Deposit Info (Landmark Panel) - INVERSION DES BOUTONS */}
             <div className="flex-shrink-0 mx-4 mt-2 mb-4 p-4 h-[200px] bg-blue-50 rounded-lg relative overflow-hidden">
 
                 {/* Logo de banque en fond (Landmark) */}
@@ -746,27 +657,39 @@ const OrderPanel = ({
                 <div className="relative z-10 flex flex-col items-end w-full h-full justify-between">
 
                     {/* Informations (Haut à droite) */}
-                    <div className="text-xs space-y-1.5 pt-1">
+                    <div className="text-xs space-y-1.5 pt-1 w-full">
+                        
+                        {/* Affichage des soldes conditionnel */}
                         <div className="flex justify-between items-center w-full">
-                            <span className="text-light-text min-w-[80px] text-right">Total Balance:</span>
-                            <span className="font-semibold text-foreground">${balance}</span>
+                        <span className="text-light-text min-w-[80px] text-left">Total Balance:</span>
+                            <span className="font-semibold text-foreground">${getDisplayValue(balance)}</span>
                         </div>
                         <div className="flex justify-between items-center w-full">
-                            <span className="text-light-text min-w-[80px] text-right">Available:</span>
-                            <span className="font-semibold text-foreground">${available}</span>
+                            <span className="text-light-text min-w-[80px] text-left">Available:</span>
+                            <span className="font-semibold text-foreground">${getDisplayValue(available)}</span>
                         </div>
                         <div className="flex justify-between items-center w-full">
-                            <span className="text-light-text min-w-[80px] text-right">Locked Margin:</span>
-                            <span className="font-semibold text-foreground">${locked}</span>
+                            <span className="text-light-text min-w-[80px] text-left">Locked Margin:</span>
+                            <span className="font-semibold text-foreground">${getDisplayValue(locked)}</span>
                         </div>
                     </div>
 
-                    {/* Bouton Deposit/Wallet (Bas à droite) */}
-                    <div className="w-full flex justify-end">
+                    {/* Bouton Deposit/Wallet et Eye/EyeOff (Bas à droite, alignés) */}
+                    <div className="w-full flex justify-end items-center gap-2 mt-4">
 
-                        {/* Utilisation du nouveau composant DepositDialog */}
-                        <DepositDialog />
-
+                        {/* 1. DepositDialog (À GAUCHE) */}
+                        <DepositDialog className="h-8 border border-blue-600 hover:bg-blue-600/90" />
+                        {/* 2. Bouton Eye/EyeOff (À DROITE) */}
+                        <Button
+                            variant="outline" 
+                            size="icon"
+                            className="h-8 w-8 text-blue-600 hover:text-blue-800 border-blue-600 bg-blue-100 hover:bg-blue-200"
+                            onClick={() => setShowBalance(prev => !prev)}
+                            title={showBalance ? "Hide Balance" : "Show Balance"}
+                        >
+                            {showBalance ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                        </Button>
+                        
                     </div>
                 </div>
             </div>

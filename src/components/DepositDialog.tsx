@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,13 @@ import { useAccount } from 'wagmi';
 
 type TransactionMode = 'deposit' | 'withdraw';
 
-export const DepositDialog = () => {
+// 1. DÉFINITION DE L'INTERFACE DES PROPS
+interface DepositDialogProps {
+    className?: string;
+}
+
+// 2. MISE À JOUR DE LA SIGNATURE POUR ACCEPTER CLASSNAME
+export const DepositDialog = ({ className }: DepositDialogProps) => {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
@@ -70,13 +76,13 @@ export const DepositDialog = () => {
   );
 
   // Toast message for disconnected state
-  const showConnectWalletToast = () => {
+  const showConnectWalletToast = useCallback(() => {
     toast({ 
         title: "Connection Required", 
         description: "Please connect your wallet to proceed.", 
         variant: "destructive" 
     });
-  };
+  }, [toast]);
 
   // Input handler (to cap input)
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -153,7 +159,12 @@ export const DepositDialog = () => {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="secondary" size="sm" className="text-xs font-semibold">
+        {/* 3. APPLICATION DU CLASSNAME AU BOUTON */}
+        <Button 
+            variant="secondary" 
+            size="sm" 
+            className={`text-xs font-semibold ${className}`}
+        >
           Deposit
         </Button>
       </DialogTrigger>

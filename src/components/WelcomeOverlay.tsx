@@ -73,11 +73,11 @@ const rawFinanceAssets: { type: AssetType; assets: Asset[] }[] = [
   {
     type: 'Tech',
     assets: [
-      { id: 6, symbol: 'AAPL' },
-      { id: 7, symbol: 'MSFT' },
-      { id: 8, symbol: 'NVDA' },
-      { id: 9, symbol: 'TSLA' },
-      { id: 10, symbol: 'AMZN' },
+      { id: 6, symbol: 'AAPLUSD' },
+      { id: 7, symbol: 'MSFTUSD' },
+      { id: 8, symbol: 'NVDAUSD' },
+      { id: 9, symbol: 'TSLAUSD' },
+      { id: 10, symbol: 'AMZNUSD' },
     ],
   },
   {
@@ -86,7 +86,7 @@ const rawFinanceAssets: { type: AssetType; assets: Asset[] }[] = [
       { id: 11, symbol: 'XAUUSD' },
       { id: 12, symbol: 'XAGUSD' },
       { id: 13, symbol: 'BRENT' },
-      { id: 14, symbol: 'WTI' },
+      { id: 14, symbol: 'WTIUSD' },
       { id: 15, symbol: 'NGAS' },
     ],
   },
@@ -97,7 +97,7 @@ const rawFinanceAssets: { type: AssetType; assets: Asset[] }[] = [
       { id: 17, symbol: 'ETHUSD' },
       { id: 18, symbol: 'SOLUSD' },
       { id: 19, symbol: 'XRPUSD' },
-      { id: 20, symbol: 'LINK' },
+      { id: 20, symbol: 'LINKUSD' },
     ],
   },
 ];
