@@ -9,7 +9,7 @@ import { Asset } from "./ChartControls";
 import { useAssetConfig } from "@/hooks/useAssetConfig";
 import { MarketClosedBanner } from "./MarketClosedBanner";
 // Wagmi/Viem Imports
-import { useWriteContract, useConfig, useAccount, useSwitchChain } from 'wagmi';
+import { useWriteContract, useAccount, usePublicClient } from 'wagmi';
 import { usePaymaster, PaymasterOpenParams } from "@/hooks/usePaymaster";
 import { Landmark, Send, ChevronUp, ChevronDown, Fuel, Eye, EyeOff } from 'lucide-react'; 
 import { Hash } from 'viem';
@@ -159,8 +159,9 @@ const OrderPanel = ({
     const { executeGaslessOrder, isLoading: paymasterLoading } = usePaymaster();
     const { writeContractAsync } = useWriteContract();
     const { toast } = useToast();
-    const config = useConfig();
-    const publicClient = config.publicClient;
+    
+    // FIX: Use usePublicClient() instead of useConfig().publicClient
+    const publicClient = usePublicClient({ chainId: currentChain?.id });
 
     const loading = localLoading || paymasterLoading;
     const finalAssetIdForTx = useMemo(() => {
@@ -376,15 +377,20 @@ const OrderPanel = ({
                     });
                 }
 
-                if (!publicClient || !txHash) {
-                    throw new Error("Wagmi public client is unavailable or txHash missing.");
-                } else {
-                    toastId = toast({
-                        title: 'Transaction Sent',
-                        description: `Waiting for ${currentChain?.name || 'chain'} confirmation...`,
-                        duration: 90000,
-                    }).id;
+                // FIX: Update receipt-waiting logic to use the new publicClient hook and handle undefined client gracefully.
+                if (!txHash) {
+                    throw new Error("txHash missing after writeContractAsync.");
+                }
 
+                toastId = toast({
+                    title: 'Transaction Sent',
+                    description: `Waiting for ${currentChain?.name || 'chain'} confirmation...`,
+                    duration: 90000,
+                }).id;
+
+                // Wait for receipt only if a public client is available.
+                // If not available, do NOT throw: the tx has been sent and the explorer link + refetch will handle UI update.
+                if (publicClient) {
                     await publicClient.waitForTransactionReceipt({ hash: txHash as Hash });
 
                     toast({
@@ -393,6 +399,15 @@ const OrderPanel = ({
                         description: 'Your transaction has been successfully mined.',
                         variant: 'default',
                         duration: 3000,
+                    });
+                } else {
+                    // Optional: update the toast to indicate tx is sent but confirmation is not being tracked.
+                    toast({
+                        id: toastId,
+                        title: 'Transaction Sent',
+                        description: 'Transaction sent. Confirmation tracking is temporarily unavailable.',
+                        variant: 'default',
+                        duration: 5000,
                     });
                 }
             }
