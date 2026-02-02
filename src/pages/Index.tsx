@@ -1,42 +1,69 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Sidebar from "@/components/Sidebar";
 import TradingSection from "@/components/TradingSection";
-import PositionsSection from "@/components/PositionsSection";
+import VaultInterface from "@/components/vault"; 
 import { FaucetDialog } from "@/components/FaucetDialog";
 import { WelcomeOverlay } from "@/components/WelcomeOverlay";
-import { useAccount } from 'wagmi';
+// 👇 IMPORT DU NOUVEAU COMPOSANT
+import MobileLayout from "@/components/mobile/MobileLayout"; 
 
 const Index: React.FC = () => {
+  // State for Desktop Navigation
+  const [currentView, setCurrentView] = useState<'trading' | 'vault'>('trading');
   const [isFaucetOpen, setIsFaucetOpen] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(true); // <-- overlay visible au premier rendu
+  const [showWelcome, setShowWelcome] = useState(true);
 
-  // Bouton pour fermer l’overlay
   const handleDismissWelcome = () => {
     setShowWelcome(false);
   };
 
   return (
-    <div className="antialiased bg-background">
+    <div className="antialiased bg-background dark:bg-black h-screen w-full transition-colors duration-300">
 
-      {/* Overlay affiché tant que showWelcome = true */}
-      {showWelcome && <WelcomeOverlay onDismiss={handleDismissWelcome} />}
+      {/* =========================================================
+          1. MOBILE VERSION (Visible if screen < 768px "md")
+         ========================================================= */}
+      <div className="md:hidden h-full w-full">
+         {/* 👇 ON APPELLE LE COMPOSANT MOBILE ICI */}
+         <MobileLayout setIsFaucetOpen={setIsFaucetOpen} />
+      </div>
 
-      {/* Sidebar */}
-      <Sidebar setIsFaucetOpen={setIsFaucetOpen} />
 
-      {/* Main Content */}
-      <main className="ml-[60px] w-[calc(100%-60px)] h-screen overflow-y-scroll snap-y snap-mandatory scroll-smooth">
-        <TradingSection />
-        {/* <PositionsSection /> */}
-      </main>
+      {/* =========================================================
+          2. DESKTOP VERSION (Hidden on mobile "hidden md:flex")
+         ========================================================= */}
+      <div className="hidden md:flex h-full overflow-hidden">
+        
+        {/* Overlay (Desktop Only - Optionnel sur mobile ?) */}
+        {showWelcome && <WelcomeOverlay onDismiss={handleDismissWelcome} />}
 
-      {/* Faucet Dialog */}
+        <Sidebar 
+            setIsFaucetOpen={setIsFaucetOpen} 
+            currentView={currentView}
+            onNavigate={setCurrentView}
+        />
+
+        <main className="ml-[60px] w-[calc(100%-60px)] h-full bg-white dark:bg-black transition-colors duration-300">
+            {currentView === 'trading' ? (
+            <div className="h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth dark:bg-black">
+                <TradingSection />
+            </div>
+            ) : (
+            <div className="h-full overflow-y-auto bg-slate-50 dark:bg-black transition-colors duration-300">
+                <VaultInterface />
+            </div>
+            )}
+        </main>
+      </div>
+
+      {/* Faucet Dialog (Partagé Mobile & Desktop) */}
       <FaucetDialog
-        open={isFaucetOpen}
-        onOpenChange={setIsFaucetOpen}
+          open={isFaucetOpen}
+          onOpenChange={setIsFaucetOpen}
       />
+
     </div>
   );
 };

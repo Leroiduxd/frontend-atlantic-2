@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useFaucet } from '@/hooks/useFaucet'; 
 import { useToast } from "@/hooks/use-toast";
-import { useAccount } from 'wagmi'; // Import de Wagmi pour l'état de connexion
+import { useAccount } from 'wagmi'; 
 
-// Définitions des props (retour à la version simple)
+// Définitions des props
 interface FaucetDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -17,33 +17,31 @@ interface FaucetDialogProps {
 
 export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, errorContext }) => {
   const { toast } = useToast();
-  const { isConnected } = useAccount(); // État de connexion
+  const { isConnected } = useAccount(); 
 
   const { 
     hasClaimed, 
     isLoadingClaimStatus, 
     isClaiming, 
     claimTestTokens,
-    tokenBalance,
     isApproved, 
     isApproving,
     approveVault,
-    refetch,
   } = useFaucet();
 
-  // Couleurs et classes
-  const primaryColor = 'text-trading-blue';
-  const successColor = 'text-green-500'; 
-  const bgColor = 'bg-blue-50';
+  // --- COULEURS DYNAMIQUES (Light Blue / Dark Zinc) ---
+  const primaryColor = 'text-blue-600 dark:text-blue-400';
+  // Succès en bleu au lieu de vert pour le mode clair
+  const successColor = 'text-blue-700 dark:text-blue-300'; 
+  const bgColor = 'bg-blue-50 dark:bg-zinc-900';
 
-  // Composant pour l'arrière-plan de l'icône (non modifié)
+  // Composant BackgroundIcon (Adapté Dark Mode)
   const BackgroundIcon = ({ Icon, isDone }: { Icon: React.ElementType, isDone: boolean }) => (
     <div className={`absolute top-1/2 -translate-y-1/2 -left-1/3 flex items-center justify-center transition-opacity duration-300 ${isDone ? 'opacity-20' : 'opacity-10'}`}>
         <Icon className={`w-[300px] h-[300px] ${isDone ? successColor : primaryColor} z-0`} /> 
     </div>
   );
   
-  // Fonction qui affiche le toast et bloque l'action si déconnecté
   const showConnectWalletToast = () => {
     toast({ 
         title: "Connection Required", 
@@ -52,60 +50,52 @@ export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, 
     });
   };
 
-  // Fonction de gestion du Claim
   const handleClaim = async () => {
-    if (!isConnected) {
-        return showConnectWalletToast();
-    }
-
+    if (!isConnected) return showConnectWalletToast();
     try {
         await claimTestTokens();
         toast({ title: "Claim Successful", description: "Test funds claimed!" });
     } catch (error: any) {
-        toast({ title: "Claim Failed", description: error?.shortMessage || error?.message || "Transaction failed or was rejected.", variant: "destructive" });
+        toast({ title: "Claim Failed", description: error?.shortMessage || error?.message || "Transaction failed.", variant: "destructive" });
     }
   };
 
-  // Fonction de gestion de l'Approbation
   const handleApprove = async () => {
-    if (!isConnected) {
-        return showConnectWalletToast();
-    }
-    
+    if (!isConnected) return showConnectWalletToast();
     try {
         await approveVault(); 
         toast({ title: "Approval Successful", description: "Vault approved for infinite TUSD." });
     } catch (error: any) {
-        toast({ title: "Approval Failed", description: error?.shortMessage || error?.message || "Transaction failed or was rejected.", variant: "destructive" });
+        toast({ title: "Approval Failed", description: error?.shortMessage || error?.message || "Transaction failed.", variant: "destructive" });
     }
   };
 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[650px] max-w-none p-0 bg-white shadow-xl rounded-lg">
+      {/* Conteneur Principal : Blanc (Light) vs Zinc-950 (Dark) */}
+      <DialogContent className="w-[650px] max-w-none p-0 bg-white dark:bg-zinc-950 shadow-xl rounded-lg dark:border-zinc-800">
         
-        {/* Affichage conditionnel basé sur l'état de connexion */}
         {isConnected ? (
           <div className="flex p-0">
             
-            {/* 1. BLOC CLAIM (Goutte) - Gauche */}
-            <div className={`flex-1 p-8 relative overflow-hidden flex flex-col justify-between ${bgColor} min-h-[450px] rounded-l-lg`}>
+            {/* 1. BLOC CLAIM */}
+            <div className={`flex-1 p-8 relative overflow-hidden flex flex-col justify-between ${bgColor} min-h-[450px] rounded-l-lg border-r border-white/50 dark:border-zinc-800`}>
                 <BackgroundIcon Icon={Droplet} isDone={hasClaimed} />
 
                 <div className="relative z-10">
                     <div className="flex items-center mb-4">
                         <Droplet className={`w-6 h-6 mr-2 ${hasClaimed ? successColor : primaryColor}`} />
-                        <h3 className="font-semibold text-lg text-gray-800">Claim Tokens</h3>
+                        <h3 className="font-semibold text-lg text-gray-800 dark:text-white">Claim Tokens</h3>
                     </div>
                     
                     {hasClaimed ? (
-                        <div className="flex items-center text-green-700 font-medium h-[60px]">
+                        <div className="flex items-center text-blue-800 dark:text-blue-300 font-medium h-[60px]">
                             <CheckCircle className={`w-5 h-5 mr-2 ${successColor}`} />
                             Tokens claimed.
                         </div>
                     ) : (
-                        <p className="text-sm text-gray-600 mb-6 h-[60px]">
+                        <p className="text-sm text-gray-600 dark:text-zinc-400 mb-6 h-[60px]">
                             Receive test tokens required to start trading.
                         </p>
                     )}
@@ -115,7 +105,11 @@ export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, 
                 <Button
                   onClick={handleClaim}
                   disabled={hasClaimed || isClaiming || isLoadingClaimStatus}
-                  className={`relative z-10 w-full font-semibold transition-colors duration-300 ${hasClaimed ? 'bg-green-500 hover:bg-green-600' : 'bg-trading-blue hover:bg-trading-blue/90'}`}
+                  className={`relative z-10 w-full font-semibold transition-colors duration-300 
+                    ${hasClaimed 
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-500 dark:hover:bg-blue-600' 
+                        : 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white'
+                    }`}
                 >
                     {isClaiming ? 'Claiming...' : (hasClaimed ? (
                       <>
@@ -129,23 +123,23 @@ export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, 
             </div>
 
 
-            {/* 2. BLOC APPROVE (Signe Dollar) - Droite */}
-            <div className={`flex-1 p-8 relative overflow-hidden flex flex-col justify-between ${bgColor} min-h-[350px] rounded-r-lg border-l border-white/50`}>
+            {/* 2. BLOC APPROVE */}
+            <div className={`flex-1 p-8 relative overflow-hidden flex flex-col justify-between ${bgColor} min-h-[350px] rounded-r-lg`}>
                 <BackgroundIcon Icon={DollarSign} isDone={isApproved} />
 
                 <div className="relative z-10">
                     <div className="flex items-center mb-4">
                         <DollarSign className={`w-6 h-6 mr-2 ${isApproved ? successColor : primaryColor}`} />
-                        <h3 className="font-semibold text-lg text-gray-800">Approve Vault</h3>
+                        <h3 className="font-semibold text-lg text-gray-800 dark:text-white">Approve Vault</h3>
                     </div>
 
                     {isApproved ? (
-                        <div className="flex items-center text-green-700 font-medium h-[60px]">
+                        <div className="flex items-center text-blue-800 dark:text-blue-300 font-medium h-[60px]">
                             <CheckCircle className={`w-5 h-5 mr-2 ${successColor}`} />
                             Vault approved. Ready to trade!
                         </div>
                     ) : (
-                        <p className="text-sm text-gray-600 mb-6 h-[60px]">
+                        <p className="text-sm text-gray-600 dark:text-zinc-400 mb-6 h-[60px]">
                             Grant the Vault permission to spend your TUSD tokens.
                         </p>
                     )}
@@ -154,8 +148,12 @@ export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, 
                 {/* Bouton Approve */}
                 <Button
                   onClick={handleApprove}
-                  disabled={!hasClaimed || isApproved || isApproving} // Désactivé si non Claimed, déjà Approved ou en cours
-                  className={`relative z-10 w-full font-semibold transition-colors duration-300 ${isApproved ? 'bg-green-500 hover:bg-green-600' : 'bg-trading-blue hover:bg-trading-blue/90'}`}
+                  disabled={!hasClaimed || isApproved || isApproving} 
+                  className={`relative z-10 w-full font-semibold transition-colors duration-300 
+                    ${isApproved 
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-500 dark:hover:bg-blue-600' 
+                        : 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white'
+                    }`}
                 >
                     {isApproving ? 'Approving...' : (isApproved ? (
                       <>
@@ -170,16 +168,13 @@ export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, 
             
           </div>
         ) : (
-             <div className="text-center py-12 px-8 flex flex-col items-center justify-center min-h-[450px]">
-                <Wallet className="w-12 h-12 text-gray-400 mb-4" />
-                <h3 className="text-xl font-semibold text-gray-800 mb-2">Wallet Connection Required</h3>
-                <p className="text-gray-600 mb-6">
+             // VUE DECONNEXION (DARK MODE COMPATIBLE)
+             <div className="text-center py-12 px-8 flex flex-col items-center justify-center min-h-[450px] bg-white dark:bg-zinc-950">
+                <Wallet className="w-12 h-12 text-gray-400 dark:text-zinc-600 mb-4" />
+                <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-2">Wallet Connection Required</h3>
+                <p className="text-gray-600 dark:text-zinc-400 mb-6">
                     Please connect your wallet to access the Faucet, claim test tokens, and approve the Vault for trading.
                 </p>
-                <div className="mx-auto w-fit">
-                   {/* Afficher un bouton décoratif mais non fonctionnel */}
-              
-                </div>
               </div>
         )}
       </DialogContent>

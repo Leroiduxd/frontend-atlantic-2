@@ -14,7 +14,7 @@ import { useQueryClient } from '@tanstack/react-query'; // 🛑 IMPORT NÉCESSAI
 // --- ADRESSES ET ABIs ---
 const FAUCET_ADDRESS = '0x68c8eb31fbf00d4d37904ad76d68e78763429700';
 const ERC20_TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b';
-const VAULT_ADDRESS = '0x19e9e0c71b672aaaadee26532da80d330399fa11';
+const VAULT_ADDRESS = '0xFebf0c9421f70041FbD3410ECE47D080f03fC7EE';
 
 // ABI du Faucet
 const FAUCET_ABI = [

@@ -12,34 +12,42 @@ import "@spicenet-io/spiceflow-ui/styles.css";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 
+// 👇 1. AJOUTE CET IMPORT (le fichier que tu as créé tout à l'heure)
+import { ThemeProvider } from "@/components/theme-provider";
+
 const queryClient = new QueryClient();
 
 const App = () => (
-  // 🛑 1. QueryClientProvider (Doit être en haut pour le cache)
   <QueryClientProvider client={queryClient}> 
-    {/* 🛑 2. WagmiProvider (Doit être en dessous de QueryClient) */}
     <WagmiProvider config={config}> 
-      {/* 🛑 3. RainbowKitProvider (Doit être en dessous de Wagmi) */}
       <RainbowKitProvider> 
-        <SpiceFlowProvider 
-          provider="privy"
-          privyAppId="cmebl077a0160l40a7xpxcv84"
-          supportedChainIds={[84532, 688689,5115 ,421614, 11155111]}
-          nativeChainId={688689}
-          nonEip7702Mode={true}
-        >
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <Routes>
-                <Route path="/" element={<Index />} />
-                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </TooltipProvider>
-        </SpiceFlowProvider>
+        
+        {/* 👇 2. INSERE LE THEME PROVIDER ICI */}
+        {/* Cela permet d'injecter la classe 'dark' ou 'light' dans ton HTML */}
+        <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme" attribute="class">
+          
+          <SpiceFlowProvider 
+            provider="privy"
+            privyAppId="cmebl077a0160l40a7xpxcv84"
+            supportedChainIds={[84532, 688689, 5115, 421614, 11155111]}
+            nativeChainId={688689}
+            nonEip7702Mode={true}
+          >
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <Routes>
+                  <Route path="/" element={<Index />} />
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </BrowserRouter>
+            </TooltipProvider>
+          </SpiceFlowProvider>
+
+        </ThemeProvider>
+        {/* 👆 FIN DU THEME PROVIDER */}
+
       </RainbowKitProvider>
     </WagmiProvider>
   </QueryClientProvider>

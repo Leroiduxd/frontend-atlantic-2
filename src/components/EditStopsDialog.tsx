@@ -1,455 +1,240 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { useState, useEffect } from "react";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowRight, RefreshCw, ChevronUp, ChevronDown } from "lucide-react"; 
+import { ArrowRight, ChevronUp, ChevronDown, X } from "lucide-react"; 
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, ReferenceLine, CartesianGrid } from "recharts";
 
-// --- Constantes ---
 const PRICE_FACTOR = 1000000; 
 
-// ====================================================================
-// COMPOSANT : StepController (Logique de contrainte intégrée)
-// ====================================================================
-interface StepControllerProps {
-    value: string;
-    onChange: (value: string) => void;
-    step: number; 
-    decimals: number; 
-    disabled?: boolean;
-    hasError?: boolean;
-    // 💡 NOUVELLES PROPS POUR LA LOGIQUE DE PRIX
-    type: 'sl' | 'tp';
-    isLong: boolean;
-    entryPrice: number; // Float
-    liqPrice: number;   // Float
-}
-
-const StepController: React.FC<StepControllerProps> = ({ 
-    value, 
-    onChange, 
-    step, 
-    decimals, 
-    disabled = false, 
-    hasError = false, 
-    type, 
-    isLong, 
-    entryPrice, 
-    liqPrice 
-}) => {
-    
-    // Convertit la valeur actuelle pour la manipulation numérique
-    let numericValue = parseFloat(value);
-    if (!Number.isFinite(numericValue)) {
-        // Si la valeur est vide ou invalide, on part de 0 pour l'incrémentation
-        numericValue = 0; 
-    }
-    
-    // Fonction d'arrondi correct pour éviter les erreurs de virgule flottante
-    const roundValue = (val: number) => {
-        const factor = Math.pow(10, decimals);
-        return Math.round(val * factor) / factor;
-    };
-
-
+const StepController = ({ value, onChange, step, decimals, disabled, hasError, type, isLong, entryPrice, liqPrice }: any) => {
+    let numericValue = parseFloat(value) || 0;
     const handleStep = (delta: number) => {
+        const factor = Math.pow(10, decimals);
+        let newValue = Math.round((numericValue + delta) * factor) / factor;
         
-        let newValue = roundValue(numericValue + delta);
-
-        // ----------------------------------------
-        // 💡 LOGIQUE DE CONTRÔLE DES PRIX
-        // ----------------------------------------
-        
-        // --- 1. CONTRÔLE DU STOP LOSS (SL) ---
         if (type === 'sl') {
-            // SL: Ne peut pas dépasser le prix d'entrée (direction de la perte)
             if (isLong) {
-                // LONG: SL doit être < Entry (mais > Liq)
-                // Si l'incrémentation dépasse Entry, on la fixe à Entry
                 newValue = Math.min(newValue, entryPrice);
+                newValue = Math.max(newValue, liqPrice + step);
             } else {
-                // SHORT: SL doit être > Entry (mais < Liq)
-                // Si l'incrémentation dépasse Entry, on la fixe à Entry
                 newValue = Math.max(newValue, entryPrice);
-            }
-            
-            // SL: Ne peut pas devenir moins sécuritaire que le prix de liquidation (limite absolue)
-            if (isLong) {
-                // LONG: Ne peut pas être <= Liq
-                newValue = Math.max(newValue, liqPrice + step); // Doit être supérieur à Liq d'au moins 1 step
-            } else {
-                // SHORT: Ne peut pas être >= Liq
-                newValue = Math.min(newValue, liqPrice - step); // Doit être inférieur à Liq d'au moins 1 step
+                newValue = Math.min(newValue, liqPrice - step);
             }
         }
-        
-        // --- 2. CONTRÔLE DU TAKE PROFIT (TP) ---
         if (type === 'tp') {
-            // TP: Doit être dans la zone de gain (dépasser Entry)
-            if (isLong) {
-                // LONG: TP doit être > Entry
-                newValue = Math.max(newValue, entryPrice + step); // Doit être supérieur à Entry d'au moins 1 step
-            } else {
-                // SHORT: TP doit être < Entry
-                newValue = Math.min(newValue, entryPrice - step); // Doit être inférieur à Entry d'au moins 1 step
-            }
+            if (isLong) newValue = Math.max(newValue, entryPrice + step);
+            else newValue = Math.min(newValue, entryPrice - step);
         }
-
-        // ----------------------------------------
-
-        // S'assurer que la valeur n'est pas négative
-        newValue = Math.max(newValue, 0); 
-        
-        // Si la nouvelle valeur est très proche de zéro et qu'elle a été initialement vide, 
-        // on pourrait vouloir la garder comme '0.00' ou vide, mais ici on la met à '0.00'
         onChange(newValue.toFixed(decimals));
     };
-
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = e.target.value; 
-        onChange(val); 
-    };
-    
-    // Affichage: Utiliser '0.00' si la valeur est vide/invalide pour l'input, sinon la valeur state
-    const displayValue = (value === '' || !Number.isFinite(numericValue)) ? '0.00' : value;
 
     return (
         <div className="relative flex items-center">
             <Input
               type="text" 
-              value={displayValue} // Utilisation de displayValue
-              onChange={handleInputChange}
-              placeholder="0.00"
+              value={value === '' ? '0.00' : value}
+              onChange={(e) => onChange(e.target.value)}
               disabled={disabled}
-              className={`h-12 text-lg pr-12 text-center focus:border-blue-500 transition-colors ${hasError ? 'border-red-500 ring-red-500' : 'border-gray-300'}`}
+              // Dark Mode: Fond noir, texte blanc, bordure sombre
+              className={`h-10 text-sm pr-10 text-center rounded-none focus-visible:ring-0 transition-colors
+                bg-white border-gray-300 focus:border-black
+                dark:bg-black dark:border-zinc-800 dark:text-white dark:focus:border-zinc-600
+                ${hasError ? 'border-red-500' : ''}`}
             />
-            
-            <div className="absolute right-0 top-0 h-full flex flex-col justify-center border-l border-gray-300">
+            <div className="absolute right-0 top-0 h-full flex flex-col justify-center border-l border-gray-300 dark:border-zinc-800">
                 <Button 
                     variant="ghost" 
                     size="icon" 
-                    className="h-1/2 w-10 p-0 border-b border-gray-300/80 rounded-none rounded-tr-lg hover:bg-gray-100"
+                    className="h-1/2 w-8 p-0 border-b border-gray-200 dark:border-zinc-800 rounded-none hover:bg-gray-50 dark:hover:bg-zinc-900 dark:text-zinc-400" 
                     onClick={() => handleStep(step)}
-                    disabled={disabled}
                 >
-                    <ChevronUp className="w-4 h-4" />
+                    <ChevronUp className="w-3 h-3" />
                 </Button>
                 <Button 
                     variant="ghost" 
                     size="icon" 
-                    className="h-1/2 w-10 p-0 rounded-none rounded-br-lg hover:bg-gray-100"
+                    className="h-1/2 w-8 p-0 rounded-none hover:bg-gray-50 dark:hover:bg-zinc-900 dark:text-zinc-400" 
                     onClick={() => handleStep(-step)}
-                    disabled={disabled}
                 >
-                    <ChevronDown className="w-4 h-4" />
+                    <ChevronDown className="w-3 h-3" />
                 </Button>
             </div>
         </div>
     );
 };
-// ====================================================================
 
+export const EditStopsDialog = ({ open, onOpenChange, positionId, priceStep, priceDecimals, onConfirm, disabled }: any) => {
+  const [positionData, setPositionData] = useState<any>(null);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [slPrice, setSlPrice] = useState("0.00");
+  const [tpPrice, setTpPrice] = useState("0.00");
 
-interface UpdateStopsPayload {
-    id: number;
-    slPrice: string | null; 
-    tpPrice: string | null; 
-    isSLChanged: boolean;
-    isTPChanged: boolean;
-}
-
-interface EditStopsDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  positionId: number;
-  currentSL: number; 
-  currentTP: number; 
-  entryPrice: number; 
-  liqPrice: number; 
-  isLong: boolean; 
-  priceStep: number; 
-  priceDecimals: number; 
-  onConfirm: (payload: UpdateStopsPayload) => void;
-  disabled: boolean;
-}
-
-export const EditStopsDialog = ({
-  open,
-  onOpenChange,
-  positionId,
-  currentSL,
-  currentTP,
-  entryPrice,
-  liqPrice,
-  isLong,
-  priceStep,
-  priceDecimals,
-  onConfirm,
-  disabled,
-}: EditStopsDialogProps) => {
-  
-  const safeEntryX6 = Number(entryPrice) || 0;
-  const safeLiqX6 = Number(liqPrice) || 0;
-  const safeCurrentSL = Number(currentSL) || 0;
-  const safeCurrentTP = Number(currentTP) || 0;
-  
-  const formatValue = useCallback((valueX6: number, fixedDecimals = priceDecimals) => {
-    if (valueX6 === 0) return '0.00'; // 💡 CHANGÉ: Affiche '0.00' si None/0
-    const floatValue = valueX6 / PRICE_FACTOR;
-    const formatted = floatValue.toFixed(fixedDecimals);
-    
-    return parseFloat(formatted).toString(); 
-  }, [priceDecimals]);
-  
-  // Conversions des prix de référence en Float pour la logique de StepController
-  const entryPriceFloat = safeEntryX6 / PRICE_FACTOR;
-  const liqPriceFloat = safeLiqX6 / PRICE_FACTOR;
-
-  // States locaux initialisés avec les valeurs actuelles formatées
-  const [slPrice, setSlPrice] = useState(formatValue(safeCurrentSL));
-  const [tpPrice, setTpPrice] = useState(formatValue(safeCurrentTP));
-  
-  // Valeurs initiales au format string (pour la comparaison)
-  // On utilise '0.00' si l'original était 0, pour refléter l'affichage de l'input
-  const initialSLPrice = useMemo(() => formatValue(safeCurrentSL), [safeCurrentSL, formatValue]);
-  const initialTPPrice = useMemo(() => formatValue(safeCurrentTP), [safeCurrentTP, formatValue]);
-
-  // Réinitialiser les états locaux lorsque la modale s'ouvre
   useEffect(() => {
-    if (open) {
-      setSlPrice(formatValue(safeCurrentSL));
-      setTpPrice(formatValue(safeCurrentTP));
+    if (open && positionId) {
+      setIsLoading(true);
+      fetch(`https://api.brokex.trade/position/${positionId}`)
+        .then(res => res.json())
+        .then(pos => {
+          setPositionData(pos);
+          setSlPrice((pos.sl_x6 / PRICE_FACTOR).toFixed(priceDecimals));
+          setTpPrice((pos.tp_x6 / PRICE_FACTOR).toFixed(priceDecimals));
+          return fetch(`https://backend.brokex.trade/history?pair=${pos.asset_id}&interval=14400`);
+        })
+        .then(res => res.json())
+        .then(history => {
+            setHistoryData(history.map((d: any) => ({ ...d, close: parseFloat(d.close) })));
+        })
+        .finally(() => setIsLoading(false));
     }
-  }, [open, safeCurrentSL, safeCurrentTP, formatValue]);
+  }, [open, positionId, priceDecimals]);
 
-  // Logique de Validation
-  const validationError = useMemo(() => {
-    const sl = parseFloat(slPrice);
-    const tp = parseFloat(tpPrice);
-    
-    // Permet la réinitialisation si l'utilisateur vide le champ (i.e. slPrice === '0.00' si initial était 0.00)
-    const isSLChanged = slPrice !== initialSLPrice;
-    const isTPChanged = tpPrice !== initialTPPrice;
-
-    if (!isSLChanged && !isTPChanged) {
-        return { isSLInvalid: false, isTPInvalid: false, message: null }; 
-    }
-    
-    // Déterminer si le champ est considéré comme "vide" ou "à 0"
-    const isSLClear = slPrice === '0.00' || slPrice === '0' || slPrice === '';
-    const isTPClear = tpPrice === '0.00' || tpPrice === '0' || tpPrice === '';
-    
-    let slMessage: string | null = null;
-    let tpMessage: string | null = null;
-    let isSLInvalid = false;
-    let isTPInvalid = false;
-    
-    // Règle 1: SL doit être entre Entry et Liq. (dans le sens de la perte)
-    if (!isSLClear) {
-        if (!Number.isFinite(sl) || sl <= 0) {
-            slMessage = `Stop Loss Price is invalid.`;
-            isSLInvalid = true;
-        }
-        // SL doit être plus sécuritaire que le prix de liquidation
-        else if ((isLong && sl <= liqPriceFloat) || (!isLong && sl >= liqPriceFloat)) {
-             slMessage = `SL must be safer than Liq. Price (${liqPriceFloat.toFixed(priceDecimals)}).`;
-             isSLInvalid = true;
-        }
-        // SL doit être dans la zone de perte (entre Entry et Liq)
-        else if ((isLong && sl >= entryPriceFloat) || (!isLong && sl <= entryPriceFloat)) {
-            slMessage = `SL must be in the loss zone (opposite to entry, Entry: ${entryPriceFloat.toFixed(priceDecimals)}).`;
-            isSLInvalid = true;
-        }
-    }
-
-    // Règle 2: TP doit être dans le sens du gain
-    if (!isTPClear) {
-        if (!Number.isFinite(tp) || tp <= 0) {
-            tpMessage = `Take Profit Price is invalid.`;
-            isTPInvalid = true;
-        }
-        else if ((isLong && tp <= entryPriceFloat) || (!isLong && tp >= entryPriceFloat)) {
-            tpMessage = `TP must be in the profit zone (Entry: ${entryPriceFloat.toFixed(priceDecimals)}).`;
-            isTPInvalid = true;
-        }
-    }
-    
-    // Si une des validations échoue, on retourne le message combiné
-    if (isSLInvalid || isTPInvalid) {
-        let fullMessage = '';
-        if (slMessage) fullMessage += `SL Error: ${slMessage} `;
-        if (tpMessage) fullMessage += `TP Error: ${tpMessage}`;
-        return { isSLInvalid, isTPInvalid, message: fullMessage.trim() };
-    }
-
-    return { isSLInvalid: false, isTPInvalid: false, message: null };
-  }, [slPrice, tpPrice, isLong, entryPriceFloat, liqPriceFloat, priceDecimals, initialSLPrice, initialTPPrice]);
-  
-  // Destructuration pour plus de clarté
-  const { isSLInvalid, isTPInvalid, message: validationMessage } = validationError;
-
-  const handleConfirm = () => {
-    // Si la valeur est '0.00' ou vide, cela signifie null (suppression du SL/TP)
-    const isSLClear = slPrice === '0.00' || slPrice === '0' || slPrice === '';
-    const isTPClear = tpPrice === '0.00' || tpPrice === '0' || tpPrice === '';
-
-    const isSLChanged = isSLClear ? initialSLPrice !== '0.00' : slPrice !== initialSLPrice;
-    const isTPChanged = isTPClear ? initialTPPrice !== '0.00' : tpPrice !== initialTPPrice;
-
-    if (validationMessage || (!isSLChanged && !isTPChanged)) {
-        if (!isSLChanged && !isTPChanged) onOpenChange(false); 
-        return; 
-    }
-    
-    const finalSL = isSLClear ? null : slPrice;
-    const finalTP = isTPClear ? null : tpPrice;
-
-    onConfirm({
-        id: positionId,
-        slPrice: finalSL,
-        tpPrice: finalTP,
-        isSLChanged,
-        isTPChanged,
-    });
-    onOpenChange(false);
-  };
-  
-  // Fonction pour réinitialiser aux valeurs initiales
-  const handleReset = () => {
-    setSlPrice(initialSLPrice);
-    setTpPrice(initialTPPrice);
-  };
-  
-  // Formate les prix pour l'affichage (Entry/Liq/Current)
-  const displayPrice = (priceX6: number) => {
-    if (priceX6 === 0) return 'None';
-    return `${formatValue(priceX6)}`;
-  }
-  
-  // Détermine si un changement a été effectué
-  const isChanged = slPrice !== initialSLPrice || tpPrice !== initialTPPrice;
-
+  const entryPrice = positionData ? positionData.entry_x6 / PRICE_FACTOR : 0;
+  const liqPrice = positionData ? positionData.liq_x6 / PRICE_FACTOR : 0;
+  const isLong = positionData?.long_side ?? true;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent 
-        // 💡 CHANGEMENT: Hauteur et largeur ajustées pour être plus responsive
-        className={`w-full max-w-lg p-0 shadow-xl rounded-lg bg-white`}
-      >
+      <DialogContent className="max-w-4xl w-[95vw] h-[500px] p-0 overflow-hidden flex rounded-none shadow-none gap-0 
+        bg-white border-gray-300 
+        dark:bg-black dark:border-zinc-800">
         
-        {/* 1. En-tête (Sans la croix de fermeture) */}
-        <DialogHeader className="p-4 border-b border-gray-200 flex flex-row items-center justify-between">
-          <DialogTitle className="text-xl font-bold text-gray-800">
-             Edit Stop Loss & Take Profit
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-6 p-6">
-          
-          {/* 2. Bloc d'informations sur la position (Amélioré) */}
-          <div className="text-sm font-medium flex items-center gap-6 pb-2 border-b border-gray-200/80">
-            <span className="text-gray-500 font-semibold">Position {positionId}</span>
-
-            {/* Direction */}
-            <span className={`px-2 py-0.5 rounded text-white text-xs font-bold ${isLong ? 'bg-blue-600' : 'bg-red-600'}`}>
-                {isLong ? 'LONG' : 'SHORT'}
-            </span>
-            
-            {/* Prix d'Entrée */}
-            <div className="flex items-center text-gray-700">
-                <span className="text-gray-500 mr-1">Entry Price:</span>
-                <span className="font-bold">{displayPrice(safeEntryX6)}</span>
-            </div>
-
-            {/* Prix de Liquidation */}
-            <div className="flex items-center text-gray-700">
-                <span className="text-gray-500 mr-1">Liq. Price:</span>
-                <span className="font-bold text-red-600">{displayPrice(safeLiqX6)}</span>
-            </div>
-          </div>
-
-          {/* 3. Champs de saisie côte à côte (Disposition du design) */}
-          <div className="grid grid-cols-2 gap-4">
-            
-            {/* Bloc Stop Loss */}
-            <div 
-                className={`p-4 border rounded-lg space-y-3 ${isSLInvalid ? 'border-red-500' : 'border-gray-300'}`}
-            >
-                <div className="flex justify-between items-center text-sm">
-                    <Label htmlFor="sl" className="font-bold">Stop Loss (USD)</Label>
-                    <span className="text-gray-500">Current: {displayPrice(safeCurrentSL)}</span>
-                </div>
-                
-                <StepController
-                    value={slPrice}
-                    onChange={setSlPrice}
-                    step={priceStep}
-                    decimals={priceDecimals}
-                    disabled={disabled}
-                    hasError={isSLInvalid}
-                    type='sl'
-                    isLong={isLong}
-                    entryPrice={entryPriceFloat}
-                    liqPrice={liqPriceFloat}
-                />
-            </div>
-
-            {/* Bloc Take Profit */}
-            <div 
-                className={`p-4 border rounded-lg space-y-3 ${isTPInvalid ? 'border-red-500' : 'border-gray-300'}`}
-            >
-               <div className="flex justify-between items-center text-sm">
-                  <Label htmlFor="tp" className="font-bold">Take Profit (USD)</Label>
-                  <span className="text-gray-500">Current: {displayPrice(safeCurrentTP)}</span>
-              </div>
+        {/* --- GAUCHE : GRAPHIQUE --- */}
+        {/* Fond Clair: #F5F5F5 | Fond Sombre: zinc-950 (presque noir mais distinguable) */}
+        <div className="w-[60%] bg-[#F5F5F5] dark:bg-zinc-950 relative flex flex-col transition-colors duration-300">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={historyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              {/* Grille : Grise claire en light, très sombre en dark */}
+              <CartesianGrid strokeDasharray="0" stroke="var(--chart-grid)" vertical={true} className="stroke-[#E5E5E5] dark:stroke-zinc-800" />
               
-              <StepController
-                value={tpPrice}
-                onChange={setTpPrice}
-                step={priceStep}
-                decimals={priceDecimals}
-                disabled={disabled}
-                hasError={isTPInvalid}
-                type='tp'
-                isLong={isLong}
-                entryPrice={entryPriceFloat}
-                liqPrice={liqPriceFloat}
+              <XAxis 
+                dataKey="timestamp" 
+                tick={{fontSize: 9, fill: '#888'}} 
+                tickFormatter={(str) => str.split(' ')[1].substring(0, 5)}
+                axisLine={false}
+                tickLine={false}
+                interval="preserveStartEnd"
               />
+              <YAxis 
+                domain={['auto', 'auto']} 
+                orientation="right" 
+                tick={{fontSize: 9, fill: '#888'}}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(val) => val.toFixed(priceDecimals)}
+              />
+              <Tooltip 
+                contentStyle={{ 
+                    borderRadius: '0px', 
+                    border: '1px solid #CCC', 
+                    fontSize: '10px',
+                    // On laisse le style inline par défaut pour le tooltip chart js, difficile à styliser via tailwind ici
+                }}
+              />
+              <Area 
+                type="monotone" 
+                dataKey="close" 
+                stroke="#2563eb" 
+                strokeWidth={1.5} 
+                fill="none" 
+                animationDuration={0}
+              />
+              <ReferenceLine y={entryPrice} stroke="#2563eb" strokeDasharray="3 3" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* --- DROITE : INFOS ET CONTROLES --- */}
+        {/* Fond: Blanc vs Noir | Bordure: Grise vs Zinc-800 */}
+        <div className="w-[40%] p-8 flex flex-col border-l border-gray-200 dark:border-zinc-800 relative bg-white dark:bg-black transition-colors duration-300">
+          <button 
+            onClick={() => onOpenChange(false)}
+            className="absolute top-4 right-4 text-gray-400 hover:text-black dark:hover:text-white transition-colors"
+          >
+            <X size={18} />
+          </button>
+
+          <div className="flex-1 space-y-8">
+            {/* Header Right */}
+            <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-bold tracking-tighter text-black dark:text-white uppercase">Position #{positionId}</h2>
+                    <div className={`px-2 py-0.5 text-[9px] font-bold uppercase border 
+                        ${isLong 
+                            ? 'border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400' 
+                            : 'border-red-600 text-red-600 dark:border-red-500 dark:text-red-500'} 
+                        rounded-none`}>
+                        {isLong ? 'Long' : 'Short'} {positionData?.leverage_x}x
+                    </div>
+                </div>
+                <p className="text-[10px] text-gray-500 dark:text-zinc-500 uppercase tracking-widest font-bold">Risk Management</p>
+            </div>
+
+            {/* Form */}
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label className="text-[10px] font-bold text-gray-400 dark:text-zinc-500 uppercase tracking-widest">Stop Loss (USD)</Label>
+                <StepController
+                  value={slPrice}
+                  onChange={setSlPrice}
+                  step={priceStep}
+                  decimals={priceDecimals}
+                  type="sl"
+                  isLong={isLong}
+                  entryPrice={entryPrice}
+                  liqPrice={liqPrice}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-[10px] font-bold text-gray-400 dark:text-zinc-500 uppercase tracking-widest">Take Profit (USD)</Label>
+                <StepController
+                  value={tpPrice}
+                  onChange={setTpPrice}
+                  step={priceStep}
+                  decimals={priceDecimals}
+                  type="tp"
+                  isLong={isLong}
+                  entryPrice={entryPrice}
+                  liqPrice={liqPrice}
+                />
+              </div>
+            </div>
+
+            {/* Summary Box */}
+            <div className="p-4 bg-gray-50 dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-none space-y-3">
+                <div className="flex justify-between text-[10px] uppercase font-bold tracking-tight">
+                    <span className="text-gray-400 dark:text-zinc-500">Entry</span>
+                    <span className="text-black dark:text-zinc-200 font-mono">${entryPrice.toFixed(priceDecimals)}</span>
+                </div>
+                <div className="flex justify-between text-[10px] uppercase font-bold tracking-tight">
+                    <span className="text-gray-400 dark:text-zinc-500">Liquidation</span>
+                    <span className="text-red-500 dark:text-red-400 font-mono">${liqPrice.toFixed(priceDecimals)}</span>
+                </div>
             </div>
           </div>
-          
-          {/* 4. Message d'erreur de validation (Sous les champs) */}
-          {validationMessage && (
-              <div className="text-sm text-white bg-red-600 p-3 rounded-md font-medium text-center">
-                  {validationMessage}
-              </div>
-          )}
 
+          {/* Actions */}
+          <div className="space-y-4 pt-6 text-center">
+            <Button 
+              onClick={() => onConfirm({ id: positionId, slPrice, tpPrice, isSLChanged: true, isTPChanged: true })}
+              disabled={isLoading || disabled}
+              className="w-full h-12 bg-black hover:bg-zinc-800 text-white dark:bg-white dark:text-black dark:hover:bg-zinc-200 rounded-none font-bold uppercase text-[11px] tracking-[0.15em] transition-none"
+            >
+              Update Position <ArrowRight className="ml-2 w-4 h-4" />
+            </Button>
+            <button 
+              onClick={() => onOpenChange(false)}
+              className="text-[10px] text-gray-400 hover:text-black dark:text-zinc-500 dark:hover:text-white font-bold uppercase tracking-widest"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
-        
-        {/* 5. Boutons d'Action (Pied de page - Sur une seule ligne, sans séparation ni fond gris) */}
-        <DialogFooter className="flex justify-between items-center p-6 pt-0 bg-white">
-          
-          <Button 
-            variant="ghost" 
-            onClick={handleReset} 
-            disabled={!isChanged || disabled}
-            title="Reset to current values" 
-            className="text-gray-500 hover:bg-gray-100 px-3 py-2"
-          >
-             <RefreshCw className="w-4 h-4 mr-1" /> Reset to Current
-          </Button>
-
-          <Button 
-            onClick={handleConfirm} 
-            disabled={!!validationMessage || !isChanged || disabled}
-            className={`font-semibold bg-blue-600 hover:bg-blue-700 text-white flex items-center h-10 px-5`}
-          >
-            Confirm Changes <ArrowRight className="w-4 h-4 ml-2" />
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

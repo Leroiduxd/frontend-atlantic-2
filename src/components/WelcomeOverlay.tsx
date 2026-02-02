@@ -1,7 +1,7 @@
 // WelcomeOverlay.tsx
 import React, { useEffect } from 'react';
 
-// --- 1. Définition des Types et des Données (Inchangées) ---
+// --- 1. Définition des Types et des Données ---
 
 type AssetType = 'Forex' | 'Tech' | 'Commodity' | 'Crypto';
 
@@ -58,7 +58,7 @@ const parseSymbol = (symbol: string): ParsedPart[] => {
   return parts;
 };
 
-// Données brutes des actifs (Inchangées)
+// Données brutes des actifs
 const rawFinanceAssets: { type: AssetType; assets: Asset[] }[] = [
   {
     type: 'Forex',
@@ -110,7 +110,7 @@ const tickerRows: TickerRow[] = rawFinanceAssets.map(row => ({
   })),
 }));
 
-// --- 2. Styles inline (Inchangés) ---
+// --- 2. Styles inline ---
 
 const styles = {
   wrapper: {
@@ -121,7 +121,6 @@ const styles = {
   },
   
   contentWrapper: {
-    backgroundColor: '#ffffff', 
     width: 'calc(100vw - 60px)', 
     marginLeft: '60px', 
     height: '100vh',
@@ -144,17 +143,9 @@ const styles = {
     letterSpacing: '0.08em',
     fontSize: 'clamp(3rem, 12vw, 18rem)',
   },
-
-  charBlue: {
-    color: '#2563eb', // Bleu
-  },
-
-  charGrey: {
-    color: '#6b7280', // Gris
-  },
 };
 
-// --- 3. CSS brut pour l’animation et la police variable (Inchangé) ---
+// --- 3. CSS brut ---
 
 const TickerStyles = `
   .doto-style {
@@ -193,7 +184,7 @@ const TickerStyles = `
   }
 `;
 
-// --- 4. Petits composants internes (Inchangés) ---
+// --- 4. Composant AssetDisplay (MODIFIÉ) ---
 
 const AssetDisplay: React.FC<ParsedAsset> = ({ symbol, parts }) => {
   return (
@@ -201,7 +192,18 @@ const AssetDisplay: React.FC<ParsedAsset> = ({ symbol, parts }) => {
       {parts.map((part, index) => (
         <span
           key={index}
-          style={part.isBlue ? styles.charBlue : styles.charGrey}
+          // --- CHANGEMENTS ICI ---
+          // part.isBlue (Première lettre) :
+          //    - Light: text-blue-600 (Bleu)
+          //    - Dark:  dark:text-white (Blanc)
+          // !part.isBlue (Reste du mot) :
+          //    - Light: text-gray-500 (Gris)
+          //    - Dark:  dark:text-zinc-500 (Gris plus clair que zinc-700)
+          className={
+            part.isBlue 
+              ? "text-blue-600 dark:text-white transition-colors duration-300" 
+              : "text-gray-500 dark:text-zinc-500 transition-colors duration-300"
+          }
         >
           {part.char}
         </span>
@@ -230,55 +232,45 @@ const FinanceTicker: React.FC = () => {
   );
 };
 
-// --- 5. Composant WelcomeOverlay (le composant principal) ---
+// --- 5. Composant WelcomeOverlay ---
 
 export const WelcomeOverlay: React.FC<WelcomeOverlayProps> = ({ onDismiss }) => {
   
-  // NOUVELLE LOGIQUE : Gérer l'appui sur la touche Entrée
   useEffect(() => {
     if (!onDismiss) return;
-
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Vérifie si la touche appuyée est "Enter" ou "Return"
       if (event.key === 'Enter') {
-        // Empêche l'action par défaut du navigateur (souvent l'envoi de formulaire)
         event.preventDefault(); 
-        
-        // Simule le clic sur le bouton
         onDismiss();
       }
     };
-
-    // Ajoute l'écouteur d'événement au document
     document.addEventListener('keydown', handleKeyDown);
-
-    // Nettoie l'écouteur lors du démontage du composant
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [onDismiss]); // Dépend de onDismiss pour se reconfigurer si la fonction change (peu probable ici)
+  }, [onDismiss]); 
 
   return (
     <>
       <style>{TickerStyles}</style>
 
-      {/* L'overlay principal */}
       <div className="fixed inset-0 z-50">
         
-        {/* Conteneur pour le Ticker */}
-        <div style={styles.contentWrapper} className="doto-style">
+        {/* Fond : Blanc en Light / Noir Total en Dark */}
+        <div 
+            style={styles.contentWrapper} 
+            className="doto-style bg-white dark:bg-black transition-colors duration-300"
+        >
           <FinanceTicker />
         </div>
 
-        {/* Bouton pour fermer l'overlay */}
         {onDismiss && (
           <button
-            // J'ajoute un `autoFocus` pour que le bouton soit sélectionné par défaut
-            // et que la touche `Enter` fonctionne nativement s'il est focus.
-            // Cependant, l'écouteur `document.addEventListener('keydown')` est plus fiable
-            // pour garantir que l'Enter fonctionne sans qu'un focus soit nécessaire.
             onClick={onDismiss}
-            className="absolute bottom-6 right-6 px-8 py-3 rounded-full bg-black text-white text-lg font-bold tracking-widest transition-opacity hover:opacity-80"
+            className="absolute bottom-6 right-6 px-8 py-3 rounded-full 
+                       bg-black text-white 
+                       dark:bg-white dark:text-black 
+                       text-lg font-bold tracking-widest transition-all hover:opacity-80"
           >
             Enter Brokex
           </button>

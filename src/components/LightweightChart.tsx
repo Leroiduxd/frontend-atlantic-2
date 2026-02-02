@@ -1,16 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import { 
   createChart, 
   ColorType, 
   IChartApi,
   CandlestickSeries, 
+  ISeriesApi,
   Time,
   CandlestickData
 } from 'lightweight-charts';
 
-// --- Interfaces (Mises à jour) ---
+// --- Interfaces ---
 
 interface ChartData {
   time: string;
@@ -32,219 +33,184 @@ interface Position {
 interface LightweightChartProps {
   data: ChartData[];
   positions?: Position[];
-  // 🟢 PROP AJOUTÉE POUR DÉCLENCHER LE REDIMENSIONNEMENT
   isPositionsCollapsed?: boolean; 
 }
-
-// -------------------------------------------------------------------------
-// COMPOSANT PRINCIPAL
-// -------------------------------------------------------------------------
 
 export const LightweightChart = ({ 
   data, 
   positions = [], 
-  isPositionsCollapsed // 👈 Nouvelle prop pour le redimensionnement
+  isPositionsCollapsed 
 }: LightweightChartProps) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  
   const chartRef = useRef<IChartApi | null>(null);
-  const seriesRef = useRef<any>(null);
-  const priceLinesRef = useRef<any[]>([]);
+  const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
+  const [isDark, setIsDark] = useState(false);
+
+  // 1. Détection du thème
+  useEffect(() => {
+    const checkTheme = () => setIsDark(document.documentElement.classList.contains('dark'));
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
+  // 2. Définition des couleurs (Ajusté pour correspondre à l'arrière-plan demandé)
   const colors = useMemo(() => ({
-    bg: '#f3f4f6',
-    grid: 'rgba(0, 0, 0, 0.15)',
-    border: 'rgba(0, 0, 0, 0.25)',
-    text: '#757575',
+    // FOND DU GRAPHIQUE : #18181b (Gris Sombre) vs #ffffff (Blanc Pur)
+    bg: isDark ? '#000000' : '#ffffff', 
+    grid: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.15)',
+    border: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.25)',
+    text: isDark ? '#a1a1aa' : '#757575',
     up: '#3b82f6',
     down: '#ef4444',
-  }), []);
+  }), [isDark]);
 
-  const formatPrice = (value: number) => {
-    if (value === 0) return "0.00";
-    const integerPart = Math.floor(Math.abs(value)).toString().length;
-    if (integerPart === 1) return value.toFixed(5);
-    if (integerPart === 2) return value.toFixed(3);
-    return value.toFixed(2);
+  const formatPrice = (price: number) => {
+    if (price === 0) return "0.00";
+    const integerPart = Math.floor(Math.abs(price)).toString().length;
+    if (integerPart === 1) return price.toFixed(5);
+    if (integerPart === 2) return price.toFixed(3);
+    return price.toFixed(2);
   };
 
-  // 1. Initialisation du graphique
+  // ---------------------------------------------------------
+  // EFFET 1 : Initialisation UNIQUE du graphique
+  // ---------------------------------------------------------
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    try {
-      chartRef.current?.remove();
-      chartRef.current = null;
-    } catch (e) {
-      console.warn('Error cleaning up previous chart:', e);
-    }
-    
-    // Fonction de redimensionnement pour les événements externes (window resize)
+    const chart = createChart(chartContainerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: colors.bg },
+        textColor: colors.text,
+        fontFamily: 'Source Code Pro, monospace',
+      },
+      grid: {
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
+      },
+      rightPriceScale: {
+        borderColor: colors.border,
+      },
+      timeScale: {
+        borderColor: colors.border,
+        timeVisible: true,
+      },
+      width: chartContainerRef.current.clientWidth,
+      height: chartContainerRef.current.clientHeight,
+    });
+
+    const series = chart.addSeries(CandlestickSeries, {
+      upColor: '#3b82f6',
+      downColor: '#ef4444',
+      borderDownColor: '#ef4444',
+      borderUpColor: '#3b82f6',
+      wickDownColor: '#ef4444',
+      wickUpColor: '#3b82f6',
+      priceFormat: {
+        type: 'custom',
+        formatter: (price: any) => formatPrice(price),
+      },
+    });
+
+    chartRef.current = chart;
+    seriesRef.current = series;
+
     const handleResize = () => {
-        if (chartContainerRef.current && chartRef.current) {
-            chartRef.current.applyOptions({
-                width: chartContainerRef.current.clientWidth,
-                height: chartContainerRef.current.clientHeight,
-            });
-        }
+      if (chartContainerRef.current && chartRef.current) {
+        chartRef.current.applyOptions({
+          width: chartContainerRef.current.clientWidth,
+          height: chartContainerRef.current.clientHeight,
+        });
+      }
     };
-    
-    try {
-      const chart = createChart(chartContainerRef.current, {
-        layout: {
-          background: { type: ColorType.Solid, color: colors.bg },
-          textColor: colors.text,
-          fontFamily: 'Source Code Pro, monospace',
-        },
-        grid: {
-          vertLines: { color: colors.grid, style: 0, visible: true },
-          horzLines: { color: colors.grid, style: 0, visible: true },
-        },
-        rightPriceScale: {
-          borderColor: colors.border,
-          textColor: colors.text,
-          visible: true,
-        },
-        timeScale: {
-          borderColor: colors.border,
-          timeVisible: true,
-          secondsVisible: false,
-          visible: true,
-        },
-        handleScroll: {
-          mouseWheel: true,
-          pressedMouseMove: true,
-          horzTouchDrag: true,
-          vertTouchDrag: true,
-        },
-        handleScale: {
-          axisPressedMouseMove: true,
-          mouseWheel: true,
-          pinch: true,
-          axisDoubleClickReset: true,
-        },
-        crosshair: {
-          mode: 0,
-        },
-        width: chartContainerRef.current.clientWidth,
-        height: chartContainerRef.current.clientHeight,
-      });
+    window.addEventListener('resize', handleResize);
 
-      const series = chart.addSeries(CandlestickSeries, {
-        upColor: colors.up,
-        downColor: colors.down,
-        borderDownColor: colors.down,
-        borderUpColor: colors.up,
-        wickDownColor: colors.down,
-        wickUpColor: colors.up,
-        priceFormat: {
-          type: 'custom',
-          formatter: (price: any) => formatPrice(price),
-        },
-      });
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); 
 
-      chartRef.current = chart;
-      seriesRef.current = series;
 
-      window.addEventListener('resize', handleResize);
+  // ---------------------------------------------------------
+  // EFFET 2 : Mise à jour dynamique des COULEURS
+  // ---------------------------------------------------------
+  useEffect(() => {
+    if (!chartRef.current) return;
 
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        if (chartRef.current) {
-          try {
-            chartRef.current.remove();
-          } catch (e) {
-            console.warn('Error removing chart:', e);
-          }
-          chartRef.current = null;
-          seriesRef.current = null;
-        }
-      };
-    } catch (error) {
-      console.error('Error creating chart:', error);
-    }
+    chartRef.current.applyOptions({
+      layout: {
+        background: { type: ColorType.Solid, color: colors.bg },
+        textColor: colors.text,
+      },
+      grid: {
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
+      },
+      rightPriceScale: { borderColor: colors.border },
+      timeScale: { borderColor: colors.border },
+    });
   }, [colors]);
 
 
-  // 🚀 NOUVEL EFFECT : Redimensionnement fluide (synchronisation avec transition de 300ms)
+  // ---------------------------------------------------------
+  // EFFET 3 : Redimensionnement fluide
+  // ---------------------------------------------------------
   useEffect(() => {
     if (chartContainerRef.current && chartRef.current) {
-        
-        const performResize = () => {
-            if (chartContainerRef.current && chartRef.current) {
-                // Applique les dimensions actuelles du conteneur (qui est en transition)
-                chartRef.current?.applyOptions({
-                    width: chartContainerRef.current!.clientWidth,
-                    height: chartContainerRef.current!.clientHeight,
-                });
-            }
-        };
+      const performResize = () => {
+        chartRef.current?.applyOptions({
+          width: chartContainerRef.current!.clientWidth,
+          height: chartContainerRef.current!.clientHeight,
+        });
+      };
 
-        // 1. Déclenchement initial (après que React ait appliqué la nouvelle classe, début de la transition)
-        const t1 = setTimeout(performResize, 70);
+      const t1 = setTimeout(performResize, 70);
+      const t2 = setTimeout(performResize, 150);
+      const t3 = setTimeout(() => {
+        performResize();
+      }, 300); 
 
-        // 2. Déclenchement au milieu de la transition
-        const t2 = setTimeout(performResize, 150);
-
-        // 3. Déclenchement final (assure que la taille est correcte à la fin des 300ms)
-        const t3 = setTimeout(() => {
-            performResize();
-            // Recentrer/ScrollToRealTime après la taille finale pour un affichage propre
-            chartRef.current?.timeScale().scrollToRealTime(); 
-        }, 300); 
-
-        // Nettoyage de tous les timeouts
-        return () => {
-            clearTimeout(t1);
-            clearTimeout(t2);
-            clearTimeout(t3);
-        };
+      return () => {
+        clearTimeout(t1);
+        clearTimeout(t2);
+        clearTimeout(t3);
+      };
     }
-  }, [isPositionsCollapsed]); // DÉPENDANCE CRUCIALE
+  }, [isPositionsCollapsed]);
 
 
-  // 3. Mise à jour des données du graphique (inchangée)
+  // ---------------------------------------------------------
+  // EFFET 4 : Mise à jour des DONNÉES
+  // ---------------------------------------------------------
   useEffect(() => {
     if (seriesRef.current && data.length > 0) {
-      try {
-        const formattedData: CandlestickData[] = data.map(item => ({
-          time: Math.floor(parseInt(item.time) / 1000) as Time,
-          open: parseFloat(item.open),
-          high: parseFloat(item.high),
-          low: parseFloat(item.low),
-          close: parseFloat(item.close),
-        }));
-
-        seriesRef.current.setData(formattedData);
-        chartRef.current?.timeScale().scrollToRealTime();
-        
-      } catch (error) {
-        console.error('Error setting chart data:', error);
-      }
+      const formattedData: CandlestickData[] = data.map(item => ({
+        time: Math.floor(parseInt(item.time) / 1000) as Time,
+        open: parseFloat(item.open),
+        high: parseFloat(item.high),
+        low: parseFloat(item.low),
+        close: parseFloat(item.close),
+      }));
+      
+      seriesRef.current.setData(formattedData);
     }
   }, [data]);
 
-  // 4. Lignes de position (inchangée)
-  useEffect(() => {
-    if (!seriesRef.current) return;
-    
-    // Nettoyage des anciennes lignes
-    priceLinesRef.current.forEach(line => {
-      try {
-        seriesRef.current.removePriceLine(line);
-      } catch (e) {
-        console.warn('Error removing price line:', e);
-      }
-    });
-    priceLinesRef.current = [];
-    
-  }, [positions, colors]);
-
   return (
-    <div className="w-full h-full relative">
+    // FOND DU CONTENEUR : bg-white (Clair) vs dark:bg-[#18181b] (Gris Sombre)
+    <div className="w-full h-full relative transition-colors duration-300 bg-white dark:bg-[#18181b]">
       <div ref={chartContainerRef} className="w-full h-full" />
       {data.length === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-light-text italic text-xl">Loading chart data...</div>
+        <div className="absolute inset-0 flex items-center justify-center bg-transparent pointer-events-none">
+          <div className="text-zinc-500 italic text-xl">Loading chart data...</div>
         </div>
       )}
     </div>

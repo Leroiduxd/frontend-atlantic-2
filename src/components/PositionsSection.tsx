@@ -1,10 +1,7 @@
-// PositionsSection.tsx
 "use client";
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
-import { usePositions } from "@/hooks/usePositions"; 
-import { useTrading } from "@/hooks/useTrading"; 
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { EditStopsDialog } from "./EditStopsDialog"; 
@@ -13,17 +10,88 @@ import { useAssetConfig } from "@/hooks/useAssetConfig";
 import { Hash } from 'viem'; 
 import { usePaymaster } from "@/hooks/usePaymaster"; 
 import { ChevronDown, ChevronUp } from 'lucide-react'; 
+import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
 
-// --- Dépendances et Fonctions Util. ---
+// --- CONFIGURATION SMART CONTRACT (PAYMASTER) ---
+
+const PAYMASTER_ADDRESS = '0x0afFdf07Cad8B950b823d8C953ee3d986a9A5FbC';
+
+const PAYMASTER_ABI = [
+  // --- VIEWS ---
+  {
+    "inputs": [
+      { "internalType": "address", "name": "trader", "type": "address" },
+      { "internalType": "uint256", "name": "cursor", "type": "uint256" },
+      { "internalType": "uint256", "name": "size", "type": "uint256" }
+    ],
+    "name": "getTradesPagination",
+    "outputs": [
+      {
+        "components": [
+          { "internalType": "address", "name": "trader", "type": "address" },
+          { "internalType": "uint32", "name": "assetId", "type": "uint32" },
+          { "internalType": "bool", "name": "isLong", "type": "bool" },
+          { "internalType": "bool", "name": "isLimit", "type": "bool" }, 
+          { "internalType": "uint8", "name": "leverage", "type": "uint8" },
+          { "internalType": "uint48", "name": "openPrice", "type": "uint48" },
+          { "internalType": "uint8", "name": "state", "type": "uint8" },
+          { "internalType": "uint32", "name": "openTimestamp", "type": "uint32" },
+          { "internalType": "uint128", "name": "fundingIndex", "type": "uint128" },
+          { "internalType": "uint48", "name": "closePrice", "type": "uint48" },
+          { "internalType": "int32", "name": "lotSize", "type": "int32" },
+          { "internalType": "uint48", "name": "stopLoss", "type": "uint48" },
+          { "internalType": "uint48", "name": "takeProfit", "type": "uint48" },
+          { "internalType": "uint64", "name": "lpLockedCapital", "type": "uint64" },
+          { "internalType": "uint64", "name": "marginUsdc", "type": "uint64" }
+        ],
+        "internalType": "struct IBrokexCore.Trade[]",
+        "name": "_trades",
+        "type": "tuple[]"
+      },
+      { "internalType": "uint256", "name": "total", "type": "uint256" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  // Mapping pour récupérer les IDs
+  {
+    "inputs": [
+        { "internalType": "address", "name": "", "type": "address" },
+        { "internalType": "uint256", "name": "", "type": "uint256" }
+    ],
+    "name": "traderTradeIds",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  // --- WRITES (Cancel & Close) ---
+  {
+    "inputs": [{ "internalType": "uint256", "name": "tradeId", "type": "uint256" }],
+    "name": "cancelOrder",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "tradeId", "type": "uint256" },
+      { "internalType": "bytes", "name": "oracleProof", "type": "bytes" }
+    ],
+    "name": "closePositionMarket",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+] as const;
+
+// --- UTILS ---
 
 const getMarketProof = async (assetId: number): Promise<Hash> => {
     const url = `https://backend.brokex.trade/proof?pairs=${assetId}`;
     const response = await fetch(url);
-    if (!response.ok) { throw new Error(`Failed to fetch proof for asset ${assetId}. Status: ${response.status}`); }
+    if (!response.ok) { throw new Error(`Failed to fetch proof`); }
     const data = await response.json();
-    const proof = data.proof as string;
-    if (!proof || proof.length <= 2 || !proof.startsWith('0x')) { throw new Error("Invalid proof received from API."); }
-    return proof as Hash; 
+    return data.proof as Hash; 
 };
 
 type TabType = "openPositions" | "pendingOrders" | "closedPositions" | "cancelledOrders";
@@ -36,147 +104,133 @@ interface PositionsSectionProps {
     onToggleCollapse: () => void;
 }
 
-// --- Composant Carte de Position (Open Positions) ---
+// --- HELPERS FORMATAGE ---
+
+const formatAssetPrice = (valueX6: number, assetId: number, symbolMap: any): string => {
+    if (valueX6 === 0) return "0.00";
+    const assetInfo = symbolMap[assetId];
+    const value = valueX6 / 1000000; 
+    return value.toFixed(assetInfo?.priceDecimals || 2);
+};
+
+const formatUSD = (valueX6: number): string => {
+    if (!valueX6 || valueX6 === 0) return "0.00";
+    const value = valueX6 / 1000000;
+    return value.toFixed(2);
+};
+
+// --- COMPOSANT CARTE (Visuel Intact) ---
 
 interface PositionCardProps {
     position: any; 
     isActionDisabled: boolean;
     handleClosePosition: (position: any) => Promise<void>;
     openEditDialog: (position: any) => void;
-    formatPrice: (valueX6: number, assetId: number) => string;
-    getDisplaySymbol: (assetSymbol: string, assetId: number) => string; // Prop pour le symbole
+    symbolMap: any;
+    getDisplaySymbol: (assetSymbol: string, assetId: number) => string; 
 }
 
-// Nouvelle implémentation de PositionCard
 const PositionCard: React.FC<PositionCardProps> = ({ 
     position, 
     isActionDisabled, 
     handleClosePosition, 
     openEditDialog,
-    formatPrice,
-    getDisplaySymbol // Utilisé ici
+    symbolMap,
+    getDisplaySymbol 
 }) => {
     const isPNLPositive = position.calculatedPNL !== null && position.calculatedPNL >= 0;
     const pnlUsdText = position.calculatedPNL !== null ? position.calculatedPNL.toFixed(2) : '---';
     const roePercentText = position.calculatedROE !== null ? position.calculatedROE.toFixed(2) : '---';
-    
-    // Données enrichies
     const markPriceText = position.currentPrice || '---'; 
-    const pnlClass = isPNLPositive ? 'text-blue-600' : 'text-red-600';
-    const sideClass = position.long_side ? 'bg-blue-600 text-white font-bold' : 'bg-red-600 text-white font-bold'; 
-    const liqPriceFormatted = position.liq_x6 ? formatPrice(position.liq_x6, position.asset_id) : '0.00';
-    const entryPrice = formatPrice(position.entry_x6, position.asset_id);
-    const tpPriceFormatted = position.tp_x6 ? formatPrice(position.tp_x6, position.asset_id) : 'None';
-    const slPriceFormatted = position.sl_x6 ? formatPrice(position.sl_x6, position.asset_id) : 'None';
     
-    // NOUVEAU: Affichage du symbole selon la règle
+    const pnlClass = isPNLPositive ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500';
+    const sideClass = position.long_side 
+        ? 'bg-blue-600 text-white dark:bg-blue-600 dark:text-white font-bold' 
+        : 'bg-red-600 text-white dark:bg-red-600 dark:text-white font-bold'; 
+        
+    const entryPrice = formatAssetPrice(position.entry_x6, position.asset_id, symbolMap);
+    const tpPriceFormatted = position.tp_x6 > 0 ? formatAssetPrice(position.tp_x6, position.asset_id, symbolMap) : 'None';
+    const slPriceFormatted = position.sl_x6 > 0 ? formatAssetPrice(position.sl_x6, position.asset_id, symbolMap) : 'None';
+    
+    const marginUsdText = `$${formatUSD(position.margin_usd6)}`;
     const symbolDisplay = getDisplaySymbol(position.assetSymbol, position.asset_id);
-    
-    // NOUVEAU: Affichage de la Marge (margin_usd6)
-    const marginUsdText = position.margin_usd6 ? `$${formatPrice(position.margin_usd6, position.asset_id)}` : '---';
-    
-    // Déterminer le symbole de base pour "Size (XXX)"
     const baseSymbol = position.assetSymbol.split('/')[0];
-    
-    // Date/Time
-    const openDate = position.created_at ? format(new Date(position.created_at), "yyyy-MM-dd") : '---';
+    const openDate = position.created_at ? format(new Date(position.created_at * 1000), "yyyy-MM-dd HH:mm") : '---';
 
     return (
-        <div className="bg-white p-4 border-b border-gray-200 text-xs flex flex-col gap-3 font-['Source_Code_Pro',_monospace]"> 
-            
-            {/* 🛑 TOP SECTION: Pair, Side/Leverage (Left) vs PNL/ROE (Right) */}
+        <div className="bg-white dark:bg-black p-4 border-b border-gray-200 dark:border-white/10 text-xs flex flex-col gap-3 font-['Source_Code_Pro',_monospace]"> 
             <div className="flex justify-between items-start pb-1">
-                
-                {/* BLOC GAUCHE HAUT: Pair, Side, Leverage */}
                 <div className="flex items-center gap-3 min-w-0">
-                    <span className="font-extrabold text-lg text-gray-900 truncate">{symbolDisplay}</span> {/* Utilise le nouveau symbole */}
+                    <span className="font-extrabold text-lg text-gray-900 dark:text-white truncate">{symbolDisplay}</span> 
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${sideClass} flex-shrink-0`}> 
                         {position.long_side ? 'LONG' : 'SHORT'} {position.leverage_x}x
                     </span>
                 </div>
-
-                {/* BLOC DROIT HAUT: Unrealized PNL / ROE (Sur une ligne) */}
                 <div className="text-right flex-shrink-0 min-w-[180px]">
-                    <span className="text-gray-500 block text-[10px] uppercase font-normal">Unrealized PNL</span>
+                    <span className="text-gray-500 dark:text-zinc-500 block text-[10px] uppercase font-normal">Unrealized PNL</span>
                     <div className={`font-bold text-lg ${pnlClass} leading-tight`}>
                         {isPNLPositive ? '+' : ''}{pnlUsdText} <span className="text-xs font-normal">USD</span> <span className="text-xs font-semibold">({roePercentText}%)</span>
                     </div>
                 </div>
             </div>
 
-            {/* 🛑 BOTTOM SECTION: Metrics Grid (Left) vs Actions (Right) */}
             <div className="flex justify-between items-start pt-2">
-                
-                {/* BLOC BAS GAUCHE: Metrics Grid (Plus grande partie) */}
                 <div className="grid grid-cols-4 gap-x-6 gap-y-4 flex-grow min-w-0 pr-8">
-                    
-                    {/* LIGNE 1 PRIX */}
                     <div>
-                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Entry Price</span>
-                        <span className="text-gray-900 text-xs font-semibold block">{entryPrice}</span>
+                        <span className="text-gray-500 dark:text-zinc-500 block text-[10px] uppercase font-normal">Entry Price</span>
+                        <span className="text-gray-900 dark:text-zinc-200 text-xs font-semibold block">{entryPrice}</span>
                     </div>
-                    
                     <div>
-                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Mark Price</span>
-                        <span className="text-gray-900 text-xs font-semibold block">{markPriceText}</span>
+                        <span className="text-gray-500 dark:text-zinc-500 block text-[10px] uppercase font-normal">Mark Price</span>
+                        <span className="text-gray-900 dark:text-zinc-200 text-xs font-semibold block">{markPriceText}</span>
                     </div>
-
                     <div>
-                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Liq. Price</span>
-                        <span className="text-red-600 text-xs font-semibold block">{liqPriceFormatted}</span>
+                        <span className="text-gray-500 dark:text-zinc-500 block text-[10px] uppercase font-normal">Liq. Price</span>
+                        <span className="text-red-600 dark:text-red-500 text-xs font-semibold block">-</span>
                     </div>
-                    
                     <div>
-                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Size ({baseSymbol})</span>
-                        <span className="text-gray-900 text-xs font-semibold block">{position.size}</span>
+                        <span className="text-gray-500 dark:text-zinc-500 block text-[10px] uppercase font-normal">Size ({baseSymbol})</span>
+                        <span className="text-gray-900 dark:text-zinc-200 text-xs font-semibold block">{position.size}</span>
                     </div>
-
-                    {/* LIGNE 2 STOP/DATES */}
-                    {/* CORRIGÉ: Affiche Margin (USD) à la place du Margin Ratio */}
                     <div>
-                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Margin (USD)</span>
-                        <span className="text-xs font-semibold block text-gray-900">{marginUsdText}</span>
+                        <span className="text-gray-500 dark:text-zinc-500 block text-[10px] uppercase font-normal">Margin (USD)</span>
+                        <span className="text-xs font-semibold block text-gray-900 dark:text-zinc-200">{marginUsdText}</span>
                     </div>
-
                     <div>
-                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Stop Loss (SL)</span>
-                        <span className="text-gray-900 text-xs font-semibold block">{slPriceFormatted}</span>
+                        <span className="text-gray-500 dark:text-zinc-500 block text-[10px] uppercase font-normal">Stop Loss (SL)</span>
+                        <span className="text-gray-900 dark:text-zinc-200 text-xs font-semibold block">{slPriceFormatted}</span>
                     </div>
-
                     <div>
-                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Take Profit (TP)</span>
-                        <span className="text-gray-900 text-xs font-semibold block">{tpPriceFormatted}</span>
+                        <span className="text-gray-500 dark:text-zinc-500 block text-[10px] uppercase font-normal">Take Profit (TP)</span>
+                        <span className="text-gray-900 dark:text-zinc-200 text-xs font-semibold block">{tpPriceFormatted}</span>
                     </div>
-                    
                     <div>
-                        <span className="text-gray-500 block text-[10px] uppercase font-normal">Open Date</span>
-                        <span className="text-gray-900 text-xs font-semibold block">{openDate}</span>
+                        <span className="text-gray-500 dark:text-zinc-500 block text-[10px] uppercase font-normal">Open Date</span>
+                        <span className="text-gray-900 dark:text-zinc-200 text-xs font-semibold block">{openDate}</span>
                     </div>
                 </div>
 
-                {/* BLOC BAS DROIT: Actions (Plus petite partie) */}
                 <div className="flex flex-col gap-2 pt-1 min-w-[170px] ml-4 flex-shrink-0">
-                    
-                    {/* 1. Bouton Close Position (Bordure grise, Texte rouge, arrondi md) */}
                     <Button
                         onClick={() => handleClosePosition(position)}
                         disabled={isActionDisabled}
                         size="sm"
-                        className={`h-8 px-3 text-[12px] font-semibold border border-gray-300 rounded-md transition duration-150 hover:bg-gray-50 w-full ${isActionDisabled ? 'text-gray-500' : 'text-red-600'}`}
+                        className={`h-8 px-3 text-[12px] font-semibold border rounded-md transition duration-150 w-full 
+                            bg-white border-gray-300 hover:bg-gray-50 
+                            dark:bg-zinc-900 dark:border-zinc-700 dark:text-red-400 dark:hover:bg-zinc-800
+                            ${isActionDisabled ? 'text-gray-500 dark:text-zinc-600' : 'text-red-600'}`}
                         variant="outline"
-                        style={{ backgroundColor: 'white' }} 
                     >
-                        Close Position
+                        {isActionDisabled ? 'Processing...' : 'Close Position'}
                     </Button>
-                    
-                    {/* 2. Bouton Modify SL/TP (Bordure grise, Texte standard, arrondi md) */}
                     <Button
                         onClick={() => openEditDialog(position)}
                         disabled={isActionDisabled}
                         size="sm"
                         variant="outline"
-                        className="h-8 px-3 text-[12px] font-semibold border border-gray-300 rounded-md transition duration-150 text-gray-700 hover:bg-gray-100 w-full"
-                        style={{ backgroundColor: 'white' }} 
+                        className="h-8 px-3 text-[12px] font-semibold border rounded-md transition duration-150 w-full
+                            bg-white border-gray-300 text-gray-700 hover:bg-gray-100
+                            dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
                     >
                         Modify SL/TP
                     </Button>
@@ -186,8 +240,7 @@ const PositionCard: React.FC<PositionCardProps> = ({
     );
 };
 
-
-// --- Composant Principal PositionsSection ---
+// --- COMPOSANT PRINCIPAL ---
 
 const PositionsSection: React.FC<PositionsSectionProps> = ({ 
   paymasterEnabled,
@@ -199,24 +252,86 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   const [activeTab, setActiveTab] = useState<TabType>("openPositions");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState<any>(null);
-  
   const [filterMode, setFilterMode] = useState<"all" | "asset">("all");
   
-  const { positions, orders, closedPositions, cancelledOrders, refetch } = usePositions();
-  const { cancelOrder, updateStops, closePosition } = useTrading(); 
-  const { toast } = useToast();
+  // -- STATES POUR LES TRADES --
+  const [rawTrades, setRawTrades] = useState<any[]>([]);
+  const [isLoadingTrades, setIsLoadingTrades] = useState(false);
 
+  const { address } = useAccount();
+  const { toast } = useToast();
   const { executeGaslessAction, isLoading: paymasterLoading } = usePaymaster();
   const { data: wsData } = useWebSocket();
   const { configs: assetConfigs, convertLotsToDisplay } = useAssetConfig(); 
+  
+  const publicClient = usePublicClient();
+  const { writeContractAsync, isPending: isWritePending } = useWriteContract();
 
-  // Mappings and formatters (inchangées)
+  // ------------------------------------------------------------------
+  //  LOGIQUE DE RÉCUPÉRATION MANUELLE (Trades + IDs)
+  // ------------------------------------------------------------------
+  
+  const fetchTrades = async () => {
+    if (!address || !publicClient) return;
+    setIsLoadingTrades(true);
+    try {
+        const cursor = 0n;
+        const size = 50n; // On fetch les 50 derniers pour l'exemple
+
+        // 1. Appel getTradesPagination
+        const result = await publicClient.readContract({
+            address: PAYMASTER_ADDRESS,
+            abi: PAYMASTER_ABI,
+            functionName: 'getTradesPagination',
+            args: [address, cursor, size]
+        });
+        
+        const trades = result[0];
+        
+        // 2. Appel des IDs en parallèle (traderTradeIds)
+        // On doit récupérer l'ID pour chaque trade reçu
+        // L'index dans le mapping est (cursor + i)
+        const idPromises = trades.map((_, i) => 
+            publicClient.readContract({
+                address: PAYMASTER_ADDRESS,
+                abi: PAYMASTER_ABI,
+                functionName: 'traderTradeIds',
+                args: [address, cursor + BigInt(i)]
+            })
+        );
+
+        const ids = await Promise.all(idPromises);
+
+        // 3. Fusion des données
+        const merged = trades.map((trade, i) => ({
+            ...trade,
+            realId: ids[i] // On attache le VRAI ID ici
+        }));
+
+        setRawTrades(merged);
+
+    } catch (e) {
+        console.error("Error fetching trades:", e);
+    } finally {
+        setIsLoadingTrades(false);
+    }
+  };
+
+  // Refresh périodique (toutes les 5s) + au chargement
+  useEffect(() => {
+    fetchTrades();
+    const interval = setInterval(fetchTrades, 5000);
+    return () => clearInterval(interval);
+  }, [address, publicClient]);
+
+
+  // Helpers de configuration
   const assetSymbolMap = useMemo(() => {
     return assetConfigs.reduce((map, config) => {
         const powerOfTen = Math.round(Math.log10(1000000 / config.tick_size_usd6)); 
         const decimals = Math.max(0, powerOfTen);
         map[config.asset_id] = { 
-            symbol: `${config.symbol}/USD`, // C'est le format que la configuration d'actif utilise (ex: BTC/USD)
+            symbol: `${config.symbol}/USD`, 
             baseSymbol: config.symbol,     
             priceDecimals: decimals,
             priceStep: 1 / (10 ** decimals),
@@ -239,231 +354,168 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
     }, {} as { [id: number]: { currentPrice: number | null; pair: string } });
   }, [wsData]);
 
-  /**
-   * Formate la valeur x6 (en $10^{-6}$) en une chaîne de prix affichable.
-   * @param valueX6 La valeur à diviser par 1,000,000.
-   * @param assetId L'ID de l'actif pour les décimales de prix.
-   */
-  const formatPrice = (valueX6: number, assetId: number): string => {
-    const assetInfo = assetSymbolMap[assetId];
-    if (!assetInfo || valueX6 === 0) return "0.00";
-    const value = valueX6 / 1000000;
-    // On utilise toFixed pour s'assurer du bon nombre de décimales, puis on enlève les zéros superflus
-    const formatted = value.toFixed(assetInfo.priceDecimals);
-    return parseFloat(formatted).toString(); 
+  // Formatage des données pour l'UI
+  const { openPositions, pendingOrders, closedPositions, cancelledOrders } = useMemo(() => {
+    
+    const open: any[] = [];
+    const pending: any[] = [];
+    const closed: any[] = [];
+    const cancelled: any[] = [];
+
+    rawTrades.forEach((t) => {
+        const position = {
+            id: Number(t.realId), // ✅ UTILISATION DU VRAI ID RÉCUPÉRÉ
+            asset_id: t.assetId,
+            long_side: t.isLong,
+            is_limit: t.isLimit,
+            leverage_x: t.leverage,
+            entry_x6: Number(t.openPrice),
+            margin_usd6: Number(t.marginUsdc),
+            sl_x6: Number(t.stopLoss),
+            tp_x6: Number(t.takeProfit),
+            lots: Number(t.lotSize),
+            created_at: Number(t.openTimestamp),
+            target_x6: Number(t.openPrice),
+            state: t.state,
+            closePriceX6: Number(t.closePrice),
+            pnl_usd6: null as number | null
+        };
+
+        const assetInfo = assetSymbolMap[position.asset_id];
+        const assetWs = assetMap[position.asset_id];
+        
+        const enriched = {
+            ...position,
+            assetSymbol: assetInfo ? assetInfo.symbol : `Asset #${position.asset_id}`,
+            size: convertLotsToDisplay(position.lots, position.asset_id).toFixed(2),
+            priceDecimals: assetInfo ? assetInfo.priceDecimals : 2,
+            priceStep: assetInfo ? assetInfo.priceStep : 0.01,
+            currentPrice: assetWs?.currentPrice ? assetWs.currentPrice.toFixed(assetInfo?.priceDecimals || 2) : '---',
+            calculatedPNL: null as number | null,
+            calculatedROE: null as number | null,
+            orderTypeString: position.is_limit ? 'Limit' : 'Stop'
+        };
+
+        if (t.state === 1) { // OPEN
+            if (assetWs?.currentPrice && position.entry_x6 > 0) {
+                const currentP = assetWs.currentPrice;
+                const entryP = position.entry_x6 / 1000000;
+                const direction = position.long_side ? 1 : -1;
+                const margin = position.margin_usd6 / 1000000;
+                
+                const roe = ((currentP / entryP) - 1) * direction * position.leverage_x * 100;
+                const pnl = margin * (roe / 100);
+                
+                enriched.calculatedPNL = pnl;
+                enriched.calculatedROE = roe;
+            }
+            open.push(enriched);
+        } 
+        else if (t.state === 0) { // PENDING
+            pending.push(enriched);
+        }
+        else if (t.state === 2) { // CLOSED
+            const closeP = position.closePriceX6 / 1000000;
+            const entryP = position.entry_x6 / 1000000;
+            const margin = position.margin_usd6 / 1000000;
+            const direction = position.long_side ? 1 : -1;
+            
+            if (entryP > 0) {
+                const roe = ((closeP / entryP) - 1) * direction * position.leverage_x * 100;
+                const pnl = margin * (roe / 100);
+                enriched.pnl_usd6 = pnl * 1000000; 
+            }
+            closed.push(enriched);
+        }
+        else if (t.state === 3) { // CANCELLED
+            cancelled.push(enriched);
+        }
+    });
+
+    open.sort((a, b) => b.created_at - a.created_at);
+    pending.sort((a, b) => b.created_at - a.created_at);
+    closed.sort((a, b) => b.created_at - a.created_at);
+    cancelled.sort((a, b) => b.created_at - a.created_at);
+
+    return { openPositions: open, pendingOrders: pending, closedPositions: closed, cancelledOrders: cancelled };
+
+  }, [rawTrades, assetMap, assetSymbolMap, convertLotsToDisplay]);
+
+
+  const filterList = (list: any[]) => {
+    if (filterMode === "all" || currentAssetId === null) return list;
+    return list.filter((p) => p.asset_id === currentAssetId);
   };
+
+  const filteredPositions = filterList(openPositions);
+  const filteredOrders = filterList(pendingOrders);
+  const filteredClosedPositions = filterList(closedPositions);
+  const filteredCancelledOrders = filterList(cancelledOrders);
+
+  // --- ACTIONS HANDLERS ---
   
-  /**
-   * Détermine le symbole d'affichage basé sur l'ID de l'actif selon la règle utilisateur.
-   * @param assetSymbol Symbole original (ex: BTC/USD).
-   * @param assetId ID de l'actif.
-   */
   const getDisplaySymbol = (assetSymbol: string, assetId: number): string => {
       const baseSymbol = assetSymbol.split('/')[0];
-      if (assetId <= 1000) {
-          // Règle Crypto (ID <= 1000) : Symbole de base + /USD
-          return `${baseSymbol}/USD`;
-      } else {
-          // Règle Autres (ID > 1000) : Symbole tel quel (qui est déjà BTC/USD, EUR/USD, etc. dans assetSymbolMap)
-          return assetSymbol; 
-      }
+      return assetId <= 1000 ? `${baseSymbol}/USD` : assetSymbol; 
   };
   
-  const formatDate = (dateStr: string) => {
-    try { return format(new Date(dateStr), "yyyy-MM-dd HH:mm"); } 
-    catch { return dateStr; }
+  const formatDate = (timestamp: number) => {
+    try { return format(new Date(timestamp * 1000), "yyyy-MM-dd HH:mm"); } 
+    catch { return "---"; }
   };
-  
-
-  const calculatePNL = (position: any, currentPrice: number | null) => {
-    if (currentPrice === null || position.entry_x6 === 0) { return { pnl: null, roe: null }; }
-    const entryPrice = position.entry_x6 / 1000000;
-    const leverage = position.leverage_x;
-    const directionFactor = position.long_side ? 1 : -1;
-    const roe = ((currentPrice / entryPrice) - 1) * directionFactor * leverage * 100;
-    const margin = position.margin_usd6 / 1000000;
-    const pnl = margin * (roe / 100);
-    return { pnl: pnl, roe: roe };
-  };
-  
-  const enrichPosition = (position: any) => {
-    const assetWsInfo = assetMap[position.asset_id];
-    const assetSymbolInfo = assetSymbolMap[position.asset_id];
-    if (!assetSymbolInfo) {
-      return { 
-        ...position, 
-        assetSymbol: `ID ${position.asset_id} N/A`, 
-        currentPrice: 'N/A', 
-        calculatedPNL: null, 
-        calculatedROE: null, 
-        priceDecimals: 2, 
-        priceStep: 0.01, 
-      };
-    }
-    const currentPriceFloat = assetWsInfo?.currentPrice || null;
-    const { pnl, roe } = calculatePNL(position, currentPriceFloat);
-    
-    return {
-      ...position,
-      assetSymbol: assetSymbolInfo.symbol, 
-      currentPrice: currentPriceFloat ? currentPriceFloat.toFixed(assetSymbolInfo.priceDecimals) : 'Loading...',
-      calculatedPNL: pnl,
-      calculatedROE: roe,
-      size: convertLotsToDisplay(position.lots, position.asset_id).toFixed(2),
-      priceDecimals: assetSymbolInfo.priceDecimals, 
-      priceStep: assetSymbolInfo.priceStep,
-      entryPriceFloat: position.entry_x6 / 1000000,
-      liqPriceFloat: position.liq_x6 / 1000000,
-    };
-  };
-
-  const enrichedPositions = useMemo(() => positions.map(enrichPosition), [positions, assetMap, assetSymbolMap]);
-  const enrichedOrders = useMemo(() => orders.map(enrichPosition), [orders, assetMap, assetSymbolMap]);
-  const enrichedClosedPositions = useMemo(() => closedPositions.map(enrichPosition), [closedPositions, assetMap, assetSymbolMap]);
-  const enrichedCancelledOrders = useMemo(() => cancelledOrders.map(enrichPosition), [cancelledOrders, assetMap, assetSymbolMap]);
-
-
-  // --- Filtres par "TOUT" ou par actif courant (inchangés) ---
-
-  const filteredPositions = useMemo(() => {
-    if (filterMode === "all" || currentAssetId === null) return enrichedPositions;
-    return enrichedPositions.filter((p) => p.asset_id === currentAssetId);
-  }, [filterMode, currentAssetId, enrichedPositions]);
-
-  const filteredOrders = useMemo(() => {
-    if (filterMode === "all" || currentAssetId === null) return enrichedOrders;
-    return enrichedOrders.filter((o) => o.asset_id === currentAssetId);
-  }, [filterMode, currentAssetId, enrichedOrders]);
-
-  const filteredClosedPositions = useMemo(() => {
-    if (filterMode === "all" || currentAssetId === null) return enrichedClosedPositions;
-    return enrichedClosedPositions.filter((p) => p.asset_id === currentAssetId);
-  }, [filterMode, currentAssetId, enrichedClosedPositions]);
-
-  const filteredCancelledOrders = useMemo(() => {
-    if (filterMode === "all" || currentAssetId === null) return enrichedCancelledOrders;
-    return enrichedCancelledOrders.filter((o) => o.asset_id === currentAssetId);
-  }, [filterMode, currentAssetId, enrichedCancelledOrders]);
-
-
-  // --- Logique des handlers (inchangée) ---
 
   const handleClosePosition = async (position: any) => { 
-    let toastId: string | number | undefined;
     try {
-      if (position.asset_id === undefined || position.asset_id === null) {
-        console.error("Position data missing asset_id:", position);
-        throw new Error("Asset ID is missing for the position.");
-      }
-
-      const assetId = Number(position.asset_id);
-      
-      if (paymasterEnabled) {
-        toastId = toast({
-            title: 'Awaiting Signature...',
-            description: 'Please approve the transaction to close the position (Gasless).',
-            duration: 90000,
-        }).id;
-        const txHash = await executeGaslessAction({
-            type: 'close',
-            positionId: position.id,
-            assetId, 
-        });
-        toast({
-            id: toastId,
-            title: 'Close Order Sent (Gasless)',
-            description: `Transaction pending via Paymaster. Tx Hash: ${txHash.substring(0, 10)}...`,
-            variant: 'default',
-            duration: 5000,
-        });
-      } else {
-        const proof = await getMarketProof(assetId); 
-        await closePosition(position.id, proof); 
-        toastId = toast({ title: "Position closed", description: "Your position has been closed successfully.", }).id;
-      }
-      setTimeout(() => refetch(), 2000);
-    } catch (error: any) {
-      console.error("Close Position Error:", error);
-      const errorMsg = error?.message?.includes('User rejected') ? 'Transaction rejected by user.' : error?.message || "Transaction failed.";
-      toast({ id: toastId, title: "Failed to close position", description: errorMsg, variant: "destructive", });
+        if (paymasterEnabled) {
+           await executeGaslessAction({ type: 'close', positionId: position.id, assetId: position.asset_id });
+           toast({ title: "Close Request Sent", description: "Processing via Paymaster..." });
+        } else {
+           const proof = await getMarketProof(position.asset_id); 
+           await writeContractAsync({
+               address: PAYMASTER_ADDRESS,
+               abi: PAYMASTER_ABI,
+               functionName: 'closePositionMarket',
+               args: [BigInt(position.id), proof]
+           });
+           toast({ title: "Close Order Sent", description: "Transaction submitted." });
+        }
+        setTimeout(() => fetchTrades(), 3000);
+    } catch (e: any) {
+        console.error(e);
+        toast({ title: "Error", description: e.message || "Failed to close.", variant: "destructive" });
     }
   };
 
   const handleCancelOrder = async (id: number) => { 
-    let toastId: string | number | undefined;
     try {
-      if (paymasterEnabled) {
-        toastId = toast({ title: 'Awaiting Signature...', description: 'Please approve the transaction to cancel the order (Gasless).', duration: 90000, }).id;
-        const txHash = await executeGaslessAction({ type: 'cancel', orderId: id });
-        toast({ id: toastId, title: 'Cancel Order Sent (Gasless)', description: `Transaction pending via Paymaster. Tx Hash: ${txHash.substring(0, 10)}...`, variant: 'default', duration: 5000, });
-      } else {
-        await cancelOrder(id); 
-        toastId = toast({ title: "Order cancelled", description: "Your order has been cancelled successfully", }).id;
-      }
-      setTimeout(() => refetch(), 2000);
-    } catch (error: any) {
-      console.error("Cancel Order Error:", error);
-      const errorMsg = error?.message?.includes('User rejected') ? 'Transaction rejected by user.' : error?.message || "Transaction failed.";
-      toast({ id: toastId, title: "Failed to cancel", description: errorMsg, variant: "destructive", });
-    }
-  };
-  
-  const handleUpdateStopsLogic = async ({ id, slPrice, tpPrice, isSLChanged, isTPChanged }: { id: number; slPrice: string | null; tpPrice: string | null; isSLChanged: boolean; isTPChanged: boolean; }) => { 
-    let toastId: string | number | undefined;
-    try {
-      let functionName = '';
-      
-      const newSLx6 = slPrice ? BigInt(Math.round(Number(slPrice) * 1000000)) : 0n;
-      const newTPx6 = tpPrice ? BigInt(Math.round(Number(tpPrice) * 1000000)) : 0n;
-      
-      if (!isSLChanged && !isTPChanged) { return; }
-      
-      if (paymasterEnabled) {
-        // --- 🅰️ MÉTHODE PAYMASTER (Gasless) ---
-        toastId = toast({ title: 'Awaiting Signature...', description: 'Please approve the transaction to update stops (Gasless).', duration: 90000, }).id;
-        
-        const txHash = await executeGaslessAction({ 
-            type: 'update', 
-            id, 
-            slPrice: isSLChanged ? Number(slPrice!) : undefined, 
-            tpPrice: isTPChanged ? Number(tpPrice!) : undefined, 
-        });
-        
-        toast({ id: toastId, title: 'Update Stops Sent (Gasless)', description: `Transaction pending via Paymaster. Tx Hash: ${txHash.substring(0, 10)}...`, variant: 'default', duration: 5000, });
-      } else {
-        // --- 🅱️ MÉTHODE TRADITIONNELLE (Wagmi) ---
-        if (isSLChanged && isTPChanged) { 
-            functionName = 'updateStops'; 
-            await updateStops(id, newSLx6, newTPx6); 
-        } 
-        else if (isSLChanged) { 
-            functionName = 'setSL'; 
-            await updateStops(id, newSLx6, null); 
-        } 
-        else if (isTPChanged) { 
-            functionName = 'setTP'; 
-            await updateStops(id, null, newTPx6); 
+        if (paymasterEnabled) {
+            await executeGaslessAction({ type: 'cancel', orderId: id });
+            toast({ title: "Cancel Request Sent", description: "Processing via Paymaster..." });
+        } else {
+            await writeContractAsync({
+                address: PAYMASTER_ADDRESS,
+                abi: PAYMASTER_ABI,
+                functionName: 'cancelOrder',
+                args: [BigInt(id)]
+            });
+            toast({ title: "Cancel Order Sent", description: "Transaction submitted." });
         }
-        toastId = toast({ title: "TP/SL updated", description: `Position ${id}: Stops updated via ${functionName}.`, }).id;
-      }
-      setTimeout(() => refetch(), 2000);
-    } catch (error: any) {
-      console.error("Update Stops Error:", error);
-      const errorMsg = error?.message?.includes('User rejected') ? 'Transaction rejected by user.' : error?.message || "Transaction failed.";
-      toast({ id: toastId, title: "Failed to update stops", description: errorMsg, variant: "destructive", });
+        setTimeout(() => fetchTrades(), 3000);
+    } catch (e: any) {
+        console.error(e);
+        toast({ title: "Error", description: e.message || "Failed to cancel.", variant: "destructive" });
     }
   };
   
-  const openEditDialog = (position: any) => { 
-    if (paymasterLoading) { 
-      toast({ title: "Action Pending", description: "Please wait for the current Paymaster transaction to finish.", variant: "default" });
-      return;
+  const handleUpdateStopsLogic = async ({ id, slPrice, tpPrice, isSLChanged, isTPChanged }: any) => { 
+    // Logic placeholder
+    if (paymasterEnabled) {
+        await executeGaslessAction({ type: 'update', id, slPrice: isSLChanged ? Number(slPrice) : undefined, tpPrice: isTPChanged ? Number(tpPrice) : undefined });
     }
-    setSelectedPosition(position);
-    setEditDialogOpen(true);
+    setTimeout(() => fetchTrades(), 2000);
   };
-  // --- Fin Logique des handlers ---
-
+  
+  const openEditDialog = (position: any) => { setSelectedPosition(position); setEditDialogOpen(true); };
 
   const tabConfig = [
     { id: "openPositions" as const, label: `Open Positions (${filteredPositions.length})` },
@@ -480,39 +532,23 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
       case "cancelledOrders": return filteredCancelledOrders; 
       default: return [];
     }
-  }, [
-    activeTab,
-    filteredPositions,
-    filteredOrders,
-    filteredClosedPositions,
-    filteredCancelledOrders,
-  ]);
+  }, [activeTab, filteredPositions, filteredOrders, filteredClosedPositions, filteredCancelledOrders]);
 
-
-  const isActionDisabled = paymasterLoading; 
+  const isActionDisabled = paymasterLoading || isWritePending; 
 
   return (
-    <section id="positions" className="flex flex-col justify-start p-0 w-full h-full bg-white font-['Source_Code_Pro',_monospace]">
+    <section id="positions" className="flex flex-col justify-start p-0 w-full h-full bg-white dark:bg-black font-['Source_Code_Pro',_monospace]">
       
-      {/* 🛑 Barre 1 (Tabs/Filtres) : HAUTEUR FIXE POUR LE MODE RÉDUIT */}
-      <div className="flex justify-between items-center border-b border-gray-200 flex-shrink-0 bg-white h-9 sticky top-0 z-10">
-        
-        {/* Tabs Navigation (Côté Gauche) - VISIBLE EN PERMANENCE */}
+      <div className="flex justify-between items-center border-b border-gray-200 dark:border-white/10 flex-shrink-0 bg-white dark:bg-black h-9 sticky top-0 z-10">
         <div className="flex justify-start space-x-0 bg-transparent h-full">
             {tabConfig.map((tab) => (
             <button
                 key={tab.id}
-                onClick={() => {
-                    setActiveTab(tab.id);
-                    // Si on était réduit et qu'on clique sur un tab, on déplie
-                    if (isCollapsed) {
-                        onToggleCollapse();
-                    }
-                }}
+                onClick={() => { setActiveTab(tab.id); if (isCollapsed) { onToggleCollapse(); } }}
                 className={`h-full py-0 px-4 rounded-none text-[11px] font-semibold transition duration-200 border-b-2 ${ 
                 activeTab === tab.id
-                    ? "text-gray-900 border-gray-900"
-                    : "text-gray-500 hover:bg-gray-100 border-transparent"
+                    ? "text-gray-900 dark:text-white border-gray-900 dark:border-white"
+                    : "text-gray-500 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-900 border-transparent"
                 }`}
             >
                 {tab.label}
@@ -520,69 +556,31 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
             ))}
         </div>
         
-        {/* Filtres (Côté Droit) + Bouton de Bascule (COMPACT) */}
         <div className="flex items-center space-x-3 pr-4 text-[11px] font-medium"> 
-            
-            {/* Bloc All/Asset + Bouton de Bascule intégré */}
-            <div className="flex items-center bg-gray-100 rounded-md overflow-hidden border border-gray-200">
-                
-                {/* 1. Bouton All */}
+            <div className="flex items-center bg-gray-100 dark:bg-zinc-900 rounded-md overflow-hidden border border-gray-200 dark:border-zinc-800">
                 <button
-                type="button"
                 onClick={() => setFilterMode("all")}
-                className={`px-2 py-0.5 text-[11px] ${ 
-                    filterMode === "all"
-                    ? "bg-white text-gray-900 font-semibold"
-                    : "text-gray-500 hover:bg-gray-200"
-                }`}
-                >
-                All
-                </button>
-                
-                {/* 2. Bouton Asset */}
+                className={`px-2 py-0.5 text-[11px] ${filterMode === "all" ? "bg-white dark:bg-zinc-800 text-gray-900 dark:text-white font-semibold" : "text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-800"}`}
+                >All</button>
                 <button
-                type="button"
                 onClick={() => setFilterMode("asset")}
                 disabled={currentAssetId === null}
-                className={`px-2 py-0.5 text-[11px] border-l border-gray-200 ${ 
-                    filterMode === "asset"
-                    ? "bg-white text-gray-900 font-semibold"
-                    : "text-gray-500 hover:bg-gray-200"
-                } ${currentAssetId === null ? "opacity-50 cursor-not-allowed" : ""}`}
-                >
-                {currentAssetSymbol || "Asset"}
-                </button>
-                
-                {/* 3. BOUTON DE BASCULE (COLLAPSE/EXPAND) - COMPACT */}
+                className={`px-2 py-0.5 text-[11px] border-l border-gray-200 dark:border-zinc-800 ${filterMode === "asset" ? "bg-white dark:bg-zinc-800 text-gray-900 dark:text-white font-semibold" : "text-gray-500 dark:text-zinc-400 hover:bg-gray-200 dark:hover:bg-zinc-800"} ${currentAssetId === null ? "opacity-50 cursor-not-allowed" : ""}`}
+                >{currentAssetSymbol || "Asset"}</button>
                 <button
                     onClick={onToggleCollapse} 
-                    className={`h-full px-2 py-0.5 text-[11px] border-l border-gray-200 transition duration-150 hover:bg-gray-200 flex items-center justify-center ${
-                        isCollapsed ? 'text-gray-900 bg-white' : 'text-gray-500'
-                    }`}
-                    aria-expanded={!isCollapsed}
-                    aria-controls="positions-content"
-                    title={isCollapsed ? "Expand Positions" : "Collapse Positions"}
+                    className={`h-full px-2 py-0.5 text-[11px] border-l border-gray-200 dark:border-zinc-800 transition duration-150 hover:bg-gray-200 dark:hover:bg-zinc-800 flex items-center justify-center ${isCollapsed ? 'text-gray-900 dark:text-white bg-white dark:bg-zinc-800' : 'text-gray-500 dark:text-zinc-400'}`}
                 >
-                    {isCollapsed ? (
-                    <ChevronUp className="w-4 h-4" /> 
-                    ) : (
-                    <ChevronDown className="w-4 h-4" />
-                    )}
+                    {isCollapsed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
             </div>
         </div>
       </div>
 
-      {/* Conteneur du Contenu Scrollable (Conditionnel). */}
       {!isCollapsed && (
-        <div 
-          id="positions-content" 
-          className="flex-grow p-0 overflow-y-auto bg-white"
-        >
-
-          {/* 1. Rendu des Positions Ouvertes (LISTE DE CARTES COMPACTES) */}
+        <div id="positions-content" className="flex-grow p-0 overflow-y-auto bg-white dark:bg-black">
           {activeTab === "openPositions" && (
-              <div className="space-y-0 divide-y divide-gray-200">
+              <div className="space-y-0 divide-y divide-gray-200 dark:divide-white/10">
                   {filteredPositions.length > 0 ? (
                       filteredPositions.map((position) => (
                           <PositionCard
@@ -591,146 +589,103 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                               isActionDisabled={isActionDisabled}
                               handleClosePosition={handleClosePosition}
                               openEditDialog={openEditDialog}
-                              formatPrice={formatPrice}
+                              symbolMap={assetSymbolMap}
                               getDisplaySymbol={getDisplaySymbol} 
                           />
                       ))
                   ) : (
-                      <div className="flex justify-center items-center h-full text-gray-500 p-4">
-                          No open positions found.
-                      </div>
+                      <div className="flex justify-center items-center h-full text-gray-500 dark:text-zinc-500 p-4">No open positions.</div>
                   )}
               </div>
           )}
 
-
-          {/* 2. Rendu des Autres Onglets (TABLEAUX CLASSIQUES - Version Claire) */}
           {(activeTab === "pendingOrders" || activeTab === "closedPositions" || activeTab === "cancelledOrders") && (
               <>
               {currentData.length > 0 ? (
                   <div className="overflow-x-auto"> 
-                      <table className="min-w-full divide-y divide-gray-200 text-gray-900">
-                         
-                         <thead className="sticky top-0 bg-white border-b border-gray-200 z-10">
-                           
+                      <table className="min-w-full divide-y divide-gray-200 dark:divide-white/10 text-gray-900 dark:text-zinc-300">
+                         <thead className="sticky top-0 bg-white dark:bg-black border-b border-gray-200 dark:border-white/10 z-10">
                            {activeTab === "pendingOrders" && (
                               <tr>
-                                <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Pair</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Created</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Type / Side</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Size</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Limit Price</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Margin (USD)</th> {/* MIS À JOUR: Colonne */}
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">TP/SL</th>
-                                <th className="pr-4 pl-3 py-1.5 text-right text-[11px] font-medium uppercase tracking-wider text-gray-500">Action</th>
+                                <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Pair</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Created</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Type / Side</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Size</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Limit Price</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Margin</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">TP/SL</th>
+                                <th className="pr-4 pl-3 py-1.5 text-right text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Action</th>
                               </tr>
                            )}
                            {activeTab === "closedPositions" && (
                               <tr>
-                                <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Pair</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Open Time</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Close Time</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Side / Lev.</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Entry Price</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">P&L Net</th>
-                                <th className="pr-4 pl-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Margin</th>
+                                <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Pair</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Date</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Side</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Entry</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">P&L</th>
+                                <th className="pr-4 pl-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Margin</th>
                               </tr>
                            )}
                            {activeTab === "cancelledOrders" && (
                               <tr>
-                                <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Pair</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Created</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Cancelled</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-lighter text-gray-500">Type / Side</th>
-                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Price</th>
-                                <th className="pr-4 pl-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500">Amount</th>
+                                <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Pair</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Created</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-lighter text-gray-500 dark:text-zinc-500">Side</th>
+                                <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Price</th>
+                                <th className="pr-4 pl-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Size</th>
                               </tr>
                            )}
                          </thead>
-                         <tbody className="divide-y divide-gray-200">
-                           {/* Contenu pour Pending Orders */}
+                         <tbody className="divide-y divide-gray-200 dark:divide-white/10">
                            {activeTab === "pendingOrders" && filteredOrders.map((order) => (
-                              <tr key={order.id} className="hover:bg-gray-100 transition duration-100">
-                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{getDisplaySymbol(order.assetSymbol, order.asset_id) || 'N/A'}</td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.created_at)}</td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px]">
-                                  Limit / <span className={order.long_side ? "text-blue-600 font-bold" : "text-red-600 font-bold"}> 
-                                    {order.long_side ? "LONG" : "SHORT"}
-                                  </span>
+                              <tr key={order.id} className="hover:bg-gray-100 dark:hover:bg-zinc-900 transition duration-100">
+                                <td className="pl-4 pr-3 py-1.5 text-[11px] font-semibold text-gray-900 dark:text-white">{getDisplaySymbol(order.assetSymbol, order.asset_id)}</td>
+                                <td className="px-3 py-1.5 text-[11px] text-gray-500 dark:text-zinc-400">{formatDate(order.created_at)}</td>
+                                <td className="px-3 py-1.5 text-[11px]">
+                                    <span className="text-gray-500 dark:text-zinc-400">{order.orderTypeString}</span> <span className="text-gray-300">/</span> <span className={order.long_side ? "text-blue-600 dark:text-blue-500 font-bold" : "text-red-600 dark:text-red-500 font-bold"}>{order.long_side ? "LONG" : "SHORT"}</span>
                                 </td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{order.size}</td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">{formatPrice(order.target_x6, order.asset_id)}</td>
-                                {/* CORRIGÉ: Affiche Margin (USD) */}
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">${formatPrice(order.margin_usd6, order.asset_id)}</td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">
-                                  TP: {order.tp_x6 ? formatPrice(order.tp_x6, order.asset_id) : 'N/A'}
+                                <td className="px-3 py-1.5 text-[11px] text-gray-900 dark:text-zinc-200">{order.size}</td>
+                                <td className="px-3 py-1.5 text-[11px] text-gray-900 dark:text-zinc-200">{formatAssetPrice(order.target_x6, order.asset_id, assetSymbolMap)}</td>
+                                <td className="px-3 py-1.5 text-[11px] text-gray-900 dark:text-zinc-200">${formatUSD(order.margin_usd6)}</td>
+                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500 dark:text-zinc-400">
+                                  TP: {order.tp_x6 > 0 ? formatAssetPrice(order.tp_x6, order.asset_id, assetSymbolMap) : 'N/A'}
                                   <br />
-                                  SL: {order.sl_x6 ? formatPrice(order.sl_x6, order.asset_id) : 'N/A'}
+                                  SL: {order.sl_x6 > 0 ? formatAssetPrice(order.sl_x6, order.asset_id, assetSymbolMap) : 'N/A'}
                                 </td>
-                                <td className="pr-4 pl-3 py-1.5 whitespace-nowrap text-right text-[11px] font-medium">
-                                  <Button
-                                    onClick={() => handleCancelOrder(order.id)} 
-                                    disabled={isActionDisabled}
-                                    variant="secondary"
-                                    size="sm"
-                                    className={`text-[11px] font-semibold h-7 px-3 ${isActionDisabled ? 'bg-gray-300 text-gray-500' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
-                                  >
-                                    Cancel
-                                  </Button>
-                                </td>
+                                <td className="pr-4 pl-3 py-1.5 text-right text-[11px]"><Button onClick={() => handleCancelOrder(order.id)} disabled={isActionDisabled} variant="secondary" size="sm" className="h-6 px-2 text-[10px]">Cancel</Button></td>
                               </tr>
                            ))}
-                           {/* Contenu pour Closed Positions */}
-                           {activeTab === "closedPositions" && filteredClosedPositions.map((position) => {
-                            const isPNLPositive = position.pnl_usd6 !== null && position.pnl_usd6 > 0;
-                            
-                            return (
-                              <tr key={position.id} className="hover:bg-gray-100 transition duration-100">
-                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{getDisplaySymbol(position.assetSymbol, position.asset_id) || 'N/A'}</td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(position.created_at)}</td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(position.updated_at)}</td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">
-                                  <span className={position.long_side ? "text-blue-600 font-bold" : "text-red-600 font-bold"}> 
-                                      {position.long_side ? "Long" : "Short"}
-                                  </span> / {position.leverage_x}x
-                                </td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{formatPrice(position.entry_x6, position.asset_id)}</td>
-                                <td className={`px-3 py-1.5 whitespace-nowrap text-[11px] font-bold ${isPNLPositive ? 'text-blue-600' : 'text-red-600'}`}>
-                                  {position.pnl_usd6 ? `$${formatPrice(position.pnl_usd6, position.asset_id)}` : '-'}
-                                </td>
-                                <td className="pr-4 pl-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">${formatPrice(position.margin_usd6, position.asset_id)}</td>
+                           {activeTab === "closedPositions" && filteredClosedPositions.map((pos) => (
+                              <tr key={pos.id} className="hover:bg-gray-100 dark:hover:bg-zinc-900 transition duration-100">
+                                <td className="pl-4 pr-3 py-1.5 text-[11px] font-semibold text-gray-900 dark:text-white">{getDisplaySymbol(pos.assetSymbol, pos.asset_id)}</td>
+                                <td className="px-3 py-1.5 text-[11px] text-gray-500 dark:text-zinc-400">{formatDate(pos.created_at)}</td>
+                                <td className="px-3 py-1.5 text-[11px]"><span className={pos.long_side ? "text-blue-600 dark:text-blue-500 font-bold" : "text-red-600 dark:text-red-500 font-bold"}>{pos.long_side ? "LONG" : "SHORT"}</span></td>
+                                <td className="px-3 py-1.5 text-[11px] text-gray-900 dark:text-zinc-200">{formatAssetPrice(pos.entry_x6, pos.asset_id, assetSymbolMap)}</td>
+                                <td className={`px-3 py-1.5 text-[11px] font-bold ${(pos.pnl_usd6 || 0) >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>{pos.pnl_usd6 ? `$${formatUSD(pos.pnl_usd6)}` : '-'}</td>
+                                <td className="pr-4 pl-3 py-1.5 text-[11px] text-gray-900 dark:text-zinc-200">${formatUSD(pos.margin_usd6)}</td>
                               </tr>
-                            );
-                           })}
-                           {/* Contenu pour Cancelled Orders */}
+                           ))}
                            {activeTab === "cancelledOrders" && filteredCancelledOrders.map((order) => (
-                              <tr key={order.id} className="hover:bg-gray-100 transition duration-100">
-                                <td className="pl-4 pr-3 py-1.5 whitespace-nowrap text-[11px] font-semibold text-gray-900">{getDisplaySymbol(order.assetSymbol, order.asset_id) || 'N/A'}</td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.created_at)}</td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-500">{formatDate(order.updated_at)}</td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">
-                                  Limit / <span className={order.long_side ? "text-blue-600 font-bold" : "text-red-600 font-bold"}> 
-                                    {order.long_side ? "LONG" : "SHORT"}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">{formatPrice(order.target_x6, order.asset_id)}</td>
-                                <td className="pr-4 pl-3 py-1.5 whitespace-nowrap text-[11px] text-gray-900">${formatPrice(order.margin_usd6, order.asset_id)}</td>
+                              <tr key={order.id} className="hover:bg-gray-100 dark:hover:bg-zinc-900 transition duration-100">
+                                <td className="pl-4 pr-3 py-1.5 text-[11px] font-semibold text-gray-900 dark:text-white">{getDisplaySymbol(order.assetSymbol, order.asset_id)}</td>
+                                <td className="px-3 py-1.5 text-[11px] text-gray-500 dark:text-zinc-400">{formatDate(order.created_at)}</td>
+                                <td className="px-3 py-1.5 text-[11px]"><span className={order.long_side ? "text-blue-600 dark:text-blue-500 font-bold" : "text-red-600 dark:text-red-500 font-bold"}>{order.long_side ? "LONG" : "SHORT"}</span></td>
+                                <td className="px-3 py-1.5 text-[11px] text-gray-900 dark:text-zinc-200">{formatAssetPrice(order.target_x6, order.asset_id, assetSymbolMap)}</td>
+                                <td className="pr-4 pl-3 py-1.5 text-[11px] text-gray-900 dark:text-zinc-200">{order.size}</td>
                               </tr>
                            ))}
                          </tbody>
                       </table>
                   </div>
               ) : (
-                  <div className="flex justify-center items-center h-full text-gray-500 p-4">
-                      No {activeTab.replace(/([A-Z])/g, ' $1').toLowerCase()} found.
-                  </div>
+                  <div className="flex justify-center items-center h-full text-gray-500 dark:text-zinc-500 p-4">No {activeTab.replace(/([A-Z])/g, ' $1').toLowerCase()}.</div>
               )}
               </>
           )}
         </div>
       )}
 
-      {/* Edit Stops Dialog (Reste inchangé) */}
       {selectedPosition && (
         <EditStopsDialog
           open={editDialogOpen}
