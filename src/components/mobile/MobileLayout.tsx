@@ -12,7 +12,7 @@ import { LightweightChartMobile } from "./LightweightChartMobile";
 import { WalletView } from "./WalletView"; 
 import { OrderPanelMobile } from "./OrderPanelMobile"; 
 import { PositionsSectionMobile } from "./PositionsSectionMobile"; 
-import { VaultMobile } from "./VaultMobile"; // ✅ 1. Import du Vault Mobile
+import { VaultMobile } from "./VaultMobile";
 
 export default function MobileLayout() {
   // --- 1. ÉTATS DE NAVIGATION & SÉLECTION ---
@@ -109,7 +109,7 @@ export default function MobileLayout() {
           </div>
         )}
 
-        {/* VUE: VAULT (✅ 2. Intégration ici) */}
+        {/* VUE: VAULT */}
         {activeTab === "vault" && (
           <div className="flex-1 h-full overflow-hidden">
             <VaultMobile />
@@ -132,15 +132,18 @@ export default function MobileLayout() {
         {/* A. BOUTONS LONG / SHORT (Uniquement visible sur l'onglet Trade) */}
         {activeTab === "trade" && (
           <div className="px-4 py-3 pb-2 flex gap-3">
+            {/* BOUTON LONG (BLEU) */}
             <button 
               onClick={() => openOrderPanel("long")} 
-              className="flex-1 h-11 bg-[#2ebd85] active:bg-[#2ebd85]/90 text-white rounded-lg font-bold text-base shadow-sm transition-transform active:scale-[0.98]"
+              className="flex-1 h-11 bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white rounded-lg font-bold text-base shadow-sm transition-transform active:scale-[0.98]"
             >
               Long
             </button>
+            
+            {/* BOUTON SHORT (ROUGE) */}
             <button 
               onClick={() => openOrderPanel("short")} 
-              className="flex-1 h-11 bg-[#f6465d] active:bg-[#f6465d]/90 text-white rounded-lg font-bold text-base shadow-sm transition-transform active:scale-[0.98]"
+              className="flex-1 h-11 bg-red-600 hover:bg-red-700 active:bg-red-700 text-white rounded-lg font-bold text-base shadow-sm transition-transform active:scale-[0.98]"
             >
               Short
             </button>

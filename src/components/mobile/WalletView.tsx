@@ -1,26 +1,88 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useAccount } from 'wagmi';
-import { useVault } from '@/hooks/useVault';
-import { useVaultBalances } from '@/hooks/useVaultBalances';
+import { useAccount, useWriteContract, useReadContracts, usePublicClient } from 'wagmi';
 import { useFaucet } from '@/hooks/useFaucet';
 import { useToast } from '@/hooks/use-toast';
 import { Wallet, ArrowDownToLine, ArrowUpFromLine, Droplet, CheckCircle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
-import { ConnectButton } from '@rainbow-me/rainbowkit'; // OU ton composant de connexion habituel
+import { ConnectButton } from '@rainbow-me/rainbowkit'; 
+import { parseUnits, formatUnits } from 'viem';
+
+// --- CONSTANTES DU SMART CONTRACT (VAULT) ---
+const VAULT_ADDRESS = '0xFebf0c9421f70041FbD3410ECE47D080f03fC7EE';
+const VAULT_ABI = [
+    {
+        "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }],
+        "name": "traderDeposit",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }],
+        "name": "traderWithdraw",
+        "outputs": [],
+        "stateMutability": "nonpayable",
+        "type": "function"
+    },
+    {
+        "inputs": [{ "internalType": "address", "name": "trader", "type": "address" }],
+        "name": "getTraderTotalBalance",
+        "outputs": [{ "internalType": "uint256", "name": "total6", "type": "uint256" }],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [{ "internalType": "address", "name": "", "type": "address" }],
+        "name": "freeBalance",
+        "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+        "stateMutability": "view",
+        "type": "function"
+    }
+] as const;
 
 export const WalletView = () => {
-  const { isConnected } = useAccount();
+  const { address, isConnected } = useAccount();
   const { toast } = useToast();
   
-  // --- HOOKS VAULT & BALANCES ---
-  const { deposit, withdraw, refetchAll } = useVault();
-  const { walletBalance, availableBalance, lockedMargin, refetchAll: refetchBalances } = useVaultBalances();
-  
-  // --- HOOK FAUCET ---
+  // --- WAGMI WRITE & PUBLIC CLIENT ---
+  const { writeContractAsync } = useWriteContract();
+  const publicClient = usePublicClient();
+
+  // --- LECTURE DES SOLDES (EN TEMPS RÉEL) ---
+  const { data: vaultData, refetch: refetchVaultData } = useReadContracts({
+    contracts: [
+        {
+            address: VAULT_ADDRESS,
+            abi: VAULT_ABI,
+            functionName: 'getTraderTotalBalance',
+            args: address ? [address] : undefined,
+        },
+        {
+            address: VAULT_ADDRESS,
+            abi: VAULT_ABI,
+            functionName: 'freeBalance',
+            args: address ? [address] : undefined,
+        }
+    ],
+    query: {
+        enabled: !!address,
+        refetchInterval: 3000 // Refresh toutes les 3s
+    }
+  });
+
+  const rawTotalBalance = vaultData?.[0]?.result || 0n;
+  const rawFreeBalance = vaultData?.[1]?.result || 0n;
+
+  // Calculs (6 décimales pour l'USDC)
+  const vaultTotalDisplay = Number(formatUnits(rawTotalBalance, 6));
+  const vaultAvailableDisplay = Number(formatUnits(rawFreeBalance, 6));
+  const vaultLockedDisplay = vaultTotalDisplay - vaultAvailableDisplay;
+
+  // --- HOOK FAUCET (Optionnel, gardé pour le setup) ---
   const { 
     hasClaimed, 
     isClaiming, 
@@ -36,30 +98,60 @@ export const WalletView = () => {
   const [amount, setAmount] = useState('');
   const [isTransacting, setIsTransacting] = useState(false);
 
-  // --- CALCULS ---
-  const numericWalletBalance = useMemo(() => parseFloat(walletBalance.replace(/,/g, '')) || 0, [walletBalance]);
+  // --- CALCUL MAX AMOUNT ---
+  // Pour le Deposit : On devrait idéalement lire le solde du Wallet (USDC) via useBalance ou ERC20
+  // Pour l'instant, on met un montant arbitraire élevé ou on garde l'ancienne logique si dispo
+  // Pour le Withdraw : C'est le `freeBalance` du Vault.
+  const maxWithdraw = vaultAvailableDisplay;
   
-  const maxAmount = mode === 'deposit' ? numericWalletBalance : availableBalance;
+  // NOTE: Ici pour l'exemple Deposit, je ne bloque pas le max par le wallet balance 
+  // car je n'ai pas l'adresse du token USDC. Dans une vraie app, ajoutez useBalance(USDC).
+  const maxAmount = mode === 'withdraw' ? maxWithdraw : 999999; 
 
   // --- HANDLERS ---
   const handleSetMax = () => {
-    setAmount(maxAmount.toString());
+    setAmount(mode === 'withdraw' ? maxWithdraw.toFixed(2) : ''); // Max deposit illimité pour l'UI ici
   };
 
   const handleTransaction = async () => {
     if (!amount || parseFloat(amount) <= 0) return;
     setIsTransacting(true);
+    
     try {
+      const amount6 = parseUnits(amount, 6);
+      let hash;
+
       if (mode === 'deposit') {
-        await deposit(amount);
+        hash = await writeContractAsync({
+            address: VAULT_ADDRESS,
+            abi: VAULT_ABI,
+            functionName: 'traderDeposit',
+            args: [amount6],
+        });
       } else {
-        await withdraw(amount);
+        hash = await writeContractAsync({
+            address: VAULT_ADDRESS,
+            abi: VAULT_ABI,
+            functionName: 'traderWithdraw',
+            args: [amount6],
+        });
       }
+
+      toast({ title: "Transaction Sent", description: "Waiting for confirmation..." });
+
+      if (publicClient && hash) {
+          await publicClient.waitForTransactionReceipt({ hash });
+      }
+
       toast({ title: "Success", description: `${mode === 'deposit' ? 'Deposited' : 'Withdrawn'} ${amount} TUSD` });
       setAmount('');
-      setTimeout(() => { refetchAll(); refetchBalances(); }, 2000);
+      
+      // Refresh Data
+      setTimeout(() => refetchVaultData(), 1000);
+
     } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
+      console.error(e);
+      toast({ title: "Error", description: e.message || "Transaction failed", variant: "destructive" });
     } finally {
       setIsTransacting(false);
     }
@@ -78,7 +170,6 @@ export const WalletView = () => {
             Connect your wallet to manage your funds, claim test tokens, and start trading.
           </p>
         </div>
-        {/* Adapte ce bouton selon ta librairie (RainbowKit, Web3Modal, etc.) */}
         <div className="custom-connect-button-wrapper">
              <ConnectButton />
         </div>
@@ -89,26 +180,26 @@ export const WalletView = () => {
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-black overflow-y-auto pb-24">
       
-      {/* 1. BALANCE CARD */}
+      {/* 1. BALANCE CARD (Données Réelles du Contrat) */}
       <div className="p-4 bg-white dark:bg-black border-b border-gray-100 dark:border-zinc-800">
         <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Equity (Vault)</span>
         <div className="text-4xl font-bold mt-1 mb-4 dark:text-white">
-          ${(availableBalance + parseFloat(lockedMargin)).toFixed(2)}
+          ${vaultTotalDisplay.toFixed(2)}
         </div>
         
         <div className="grid grid-cols-2 gap-4">
           <div className="p-3 bg-slate-50 dark:bg-zinc-900 rounded-lg">
             <span className="text-[10px] text-slate-500 block">Available Margin</span>
-            <span className="font-mono font-semibold dark:text-white">${availableBalance.toFixed(2)}</span>
+            <span className="font-mono font-semibold dark:text-white">${vaultAvailableDisplay.toFixed(2)}</span>
           </div>
           <div className="p-3 bg-slate-50 dark:bg-zinc-900 rounded-lg">
             <span className="text-[10px] text-slate-500 block">Used Margin</span>
-            <span className="font-mono font-semibold dark:text-white">${lockedMargin}</span>
+            <span className="font-mono font-semibold dark:text-white">${vaultLockedDisplay.toFixed(2)}</span>
           </div>
         </div>
       </div>
 
-      {/* 2. FAUCET SECTION (Si nécessaire) */}
+      {/* 2. FAUCET SECTION (Keep as is for onboarding) */}
       {(!hasClaimed || !isApproved) && !isLoadingClaimStatus && (
         <div className="p-4">
           <Card className="p-4 border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900">
@@ -117,7 +208,7 @@ export const WalletView = () => {
             </h3>
             
             <div className="space-y-3">
-              {/* Étape 1 : Claim */}
+              {/* Claim */}
               <div className="flex items-center justify-between">
                 <span className="text-sm text-amber-800 dark:text-amber-200">1. Get 10,000 TUSD</span>
                 {hasClaimed ? (
@@ -129,7 +220,7 @@ export const WalletView = () => {
                 )}
               </div>
 
-              {/* Étape 2 : Approve */}
+              {/* Approve */}
               <div className="flex items-center justify-between">
                 <span className="text-sm text-amber-800 dark:text-amber-200">2. Approve Vault</span>
                 {isApproved ? (
@@ -145,7 +236,7 @@ export const WalletView = () => {
         </div>
       )}
 
-      {/* 3. ACTIONS (Deposit / Withdraw) */}
+      {/* 3. ACTIONS (Direct Contract Interaction) */}
       <div className="p-4 flex-1">
         {/* Tabs */}
         <div className="flex p-1 bg-white dark:bg-zinc-900 rounded-xl mb-6 border border-gray-100 dark:border-zinc-800">
@@ -174,7 +265,7 @@ export const WalletView = () => {
           <div className="space-y-2">
             <div className="flex justify-between text-xs text-slate-500">
               <span>Amount</span>
-              <span>Max: {maxAmount.toFixed(2)} TUSD</span>
+              {mode === 'withdraw' && <span>Max: {maxWithdraw.toFixed(2)} TUSD</span>}
             </div>
             
             <div className="relative">
@@ -204,12 +295,6 @@ export const WalletView = () => {
           >
             {isTransacting ? <Loader2 className="animate-spin" /> : (mode === 'deposit' ? 'Confirm Deposit' : 'Confirm Withdraw')}
           </Button>
-
-          {mode === 'deposit' && (
-            <p className="text-xs text-center text-slate-400 mt-2">
-              Wallet Balance: <span className="text-slate-900 dark:text-white font-mono">${walletBalance}</span>
-            </p>
-          )}
         </div>
       </div>
 

@@ -51,14 +51,16 @@ export const LightweightChartMobile = ({
     return () => observer.disconnect();
   }, []);
 
-  // 2. Couleurs adaptées mobile (plus de contraste)
+  // 2. Couleurs adaptées mobile (BLEU / ROUGE)
   const colors = useMemo(() => ({
     bg: isDark ? '#000000' : '#ffffff', 
-    grid: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.05)', // Grille très discrète sur mobile
+    grid: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.05)', 
     border: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
     text: isDark ? '#71717a' : '#a1a1aa',
-    up: '#22c55e', // Vert plus vif (Tailwind green-500)
-    down: '#ef4444', // Rouge vif
+    
+    // --- CHANGEMENT ICI : Bleu au lieu de Vert ---
+    up: '#3b82f6', // Bleu (Tailwind Blue-500)
+    down: '#ef4444', // Rouge (Tailwind Red-500)
   }), [isDark]);
 
   const formatPrice = (price: number) => {
@@ -88,9 +90,9 @@ export const LightweightChartMobile = ({
       },
       // Configuration Mobile Spécifique
       rightPriceScale: {
-        borderColor: 'transparent', // Pas de bordure latérale pour gagner de l'espace visuel
+        borderColor: 'transparent', 
         scaleMargins: {
-          top: 0.1, // Un peu de marge en haut pour la légende
+          top: 0.1, 
           bottom: 0.1,
         },
         visible: true,
@@ -101,7 +103,7 @@ export const LightweightChartMobile = ({
         secondsVisible: false,
       },
       crosshair: {
-        mode: CrosshairMode.Magnet, // Aimante le doigt à la bougie
+        mode: CrosshairMode.Magnet, 
         vertLine: {
           width: 1,
           color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
@@ -113,7 +115,6 @@ export const LightweightChartMobile = ({
           style: 3,
         },
       },
-      // Activer le scroll cinétique pour le tactile
       kineticScroll: {
         touch: true,
         mouse: true,
@@ -155,8 +156,6 @@ export const LightweightChartMobile = ({
           });
         }
       } else {
-        // Si on relâche le doigt, on remet les données de la dernière bougie (si disponible)
-        // Note: Ici on laisse null pour masquer ou on pourrait mettre la dernière valeur de 'data' props
         setLegendData(null);
       }
     });
@@ -243,7 +242,6 @@ export const LightweightChartMobile = ({
   return (
     <div className="w-full h-full relative bg-white dark:bg-[#000000]">
       {/* LÉGENDE MOBILE FLOTTANTE (OHLC) */}
-      {/* On l'affiche en haut à gauche par dessus le graphique */}
       <div className="absolute top-2 left-3 z-10 flex flex-col pointer-events-none select-none">
         <span className="text-[10px] font-bold text-slate-900 dark:text-white opacity-50 mb-0.5">
           {symbol}
@@ -252,19 +250,19 @@ export const LightweightChartMobile = ({
           <div className="flex items-center gap-3 text-[10px] font-mono">
             <div className="flex flex-col">
               <span className="text-slate-400 dark:text-zinc-600 text-[8px]">O</span>
-              <span className={legendData.change >= 0 ? "text-green-500" : "text-red-500"}>{legendData.open}</span>
+              <span className={legendData.change >= 0 ? "text-blue-500" : "text-red-500"}>{legendData.open}</span>
             </div>
             <div className="flex flex-col">
               <span className="text-slate-400 dark:text-zinc-600 text-[8px]">H</span>
-              <span className={legendData.change >= 0 ? "text-green-500" : "text-red-500"}>{legendData.high}</span>
+              <span className={legendData.change >= 0 ? "text-blue-500" : "text-red-500"}>{legendData.high}</span>
             </div>
             <div className="flex flex-col">
               <span className="text-slate-400 dark:text-zinc-600 text-[8px]">L</span>
-              <span className={legendData.change >= 0 ? "text-green-500" : "text-red-500"}>{legendData.low}</span>
+              <span className={legendData.change >= 0 ? "text-blue-500" : "text-red-500"}>{legendData.low}</span>
             </div>
             <div className="flex flex-col">
               <span className="text-slate-400 dark:text-zinc-600 text-[8px]">C</span>
-              <span className={legendData.change >= 0 ? "text-green-500" : "text-red-500"}>{legendData.close}</span>
+              <span className={legendData.change >= 0 ? "text-blue-500" : "text-red-500"}>{legendData.close}</span>
             </div>
           </div>
         ) : (

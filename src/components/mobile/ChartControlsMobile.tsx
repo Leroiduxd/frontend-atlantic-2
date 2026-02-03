@@ -2,13 +2,11 @@
 
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { ChevronDown, Search } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useWebSocket, getAssetsByCategory } from "@/hooks/useWebSocket";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Input } from "@/components/ui/input";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 
-// On définit l'interface ici pour être sûr qu'elle match
 export interface Asset {
   id: number;
   name: string;
@@ -46,24 +44,16 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
     currentPrice 
   } = props;
   
-  // Utilisation de ton hook tel quel
   const { data: wsData } = useWebSocket();
   
-  // Transformation des données via ta fonction helper
   const assetsByCat = useMemo(() => getAssetsByCategory(wsData || {}), [wsData]);
 
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
-
-  useEffect(() => {
-    if (!isSheetOpen) setSearchQuery("");
-  }, [isSheetOpen]);
 
   const handleAssetChange = (asset: any) => {
-    // On s'assure de renvoyer un objet propre
     const normalizedAsset: Asset = {
-        id: Number(asset.id), // Important : ID en nombre
+        id: Number(asset.id),
         name: asset.name,
         symbol: asset.symbol,
         pair: asset.pair,
@@ -84,24 +74,14 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
   const filteredAssets = useMemo(() => {
     let allAssets: any[] = [];
     
-    // Agrégation selon la catégorie
     if (activeCategory === "all") {
         Object.values(assetsByCat).forEach((list: any) => allAssets.push(...list));
     } else {
-        // @ts-ignore - Accès dynamique sécurisé par la logique
+        // @ts-ignore
         allAssets = assetsByCat[activeCategory] || [];
     }
-
-    // Filtrage recherche
-    if (searchQuery.trim() !== "") {
-        const lowerQ = searchQuery.toLowerCase();
-        allAssets = allAssets.filter(a => 
-            a.symbol.toLowerCase().includes(lowerQ) || 
-            a.name.toLowerCase().includes(lowerQ)
-        );
-    }
     return allAssets;
-  }, [activeCategory, assetsByCat, searchQuery]);
+  }, [activeCategory, assetsByCat]);
 
   const priceChange24h = parseFloat(selectedAsset.change24h || '0');
   const isPositive = priceChange24h >= 0;
@@ -136,29 +116,20 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
             </div>
           </SheetTrigger>
 
-          <SheetContent side="bottom" className="h-[85dvh] w-full p-0 bg-white dark:bg-black rounded-t-2xl border-t border-zinc-200 dark:border-zinc-800">
+          <SheetContent side="bottom" className="h-[80dvh] w-full p-0 bg-white dark:bg-black rounded-t-2xl border-t border-zinc-200 dark:border-zinc-800">
             <div className="flex flex-col h-full">
                 
-                {/* Barre de Recherche */}
+                {/* Header (Catégories Seules) */}
                 <div className="p-4 border-b border-gray-100 dark:border-zinc-800">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                        <Input 
-                            placeholder="Search (BTC, Gold, EUR...)" 
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-9 h-11 bg-slate-100 dark:bg-zinc-900 border-none rounded-xl text-base"
-                            autoFocus
-                        />
-                    </div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3 px-1">Select Asset</h3>
                     
                     {/* Catégories */}
-                    <div className="flex gap-2 overflow-x-auto mt-4 pb-1 no-scrollbar">
+                    <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                         {CATEGORIES.map((cat) => (
                             <button
                                 key={cat}
                                 onClick={() => setActiveCategory(cat)}
-                                className={`px-4 py-2 text-xs font-bold rounded-full capitalize transition-colors
+                                className={`px-4 py-2 text-xs font-bold rounded-full capitalize transition-colors flex-shrink-0
                                     ${activeCategory === cat 
                                         ? "bg-black text-white dark:bg-white dark:text-black" 
                                         : "bg-slate-100 text-slate-500 dark:bg-zinc-900 dark:text-zinc-500"
@@ -193,7 +164,7 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
                                     <span className="font-mono text-sm font-medium text-slate-900 dark:text-white">
                                         {formatPrice(parseFloat(asset.currentPrice || '0'))}
                                     </span>
-                                    <span className={`text-xs font-bold ${parseFloat(asset.change24h || '0') >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                    <span className={`text-xs font-bold ${parseFloat(asset.change24h || '0') >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
                                         {parseFloat(asset.change24h || '0') >= 0 ? '+' : ''}{parseFloat(asset.change24h || '0').toFixed(2)}%
                                     </span>
                                 </div>
@@ -214,7 +185,7 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
             <span className="font-mono font-bold text-xl text-slate-900 dark:text-white leading-none tracking-tight">
                 {formatPrice(currentPrice)}
             </span>
-            <span className={`text-xs font-bold mt-1 ${isPositive ? "text-green-500" : "text-red-500"}`}>
+            <span className={`text-xs font-bold mt-1 ${isPositive ? "text-blue-600 dark:text-blue-500" : "text-red-600 dark:text-red-500"}`}>
                 {isPositive ? "+" : ""}{priceChange24h.toFixed(2)}%
             </span>
         </div>
