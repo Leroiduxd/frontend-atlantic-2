@@ -12,6 +12,19 @@ import { usePaymaster } from "@/hooks/usePaymaster";
 import { ChevronDown, ChevronUp } from 'lucide-react'; 
 import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
 
+// --- MAPPING DES PAIRES (AJOUTÉ) ---
+const PAIR_MAP: { [key: number]: string } = {
+  6004:'aapl_usd', 6005:'amzn_usd', 6010:'coin_usd', 6003:'goog_usd',
+  6011:'gme_usd', 6009:'intc_usd', 6059:'ko_usd', 6068:'mcd_usd',
+  6001:'msft_usd', 6066:'ibm_usd', 6006:'meta_usd', 6002:'nvda_usd',
+  6000:'tsla_usd', 5010:'aud_usd', 5000:'eur_usd', 5002:'gbp_usd',
+  5013:'nzd_usd', 5011:'usd_cad', 5012:'usd_chf', 5001:'usd_jpy',
+  5501:'xag_usd', 5500:'xau_usd', 0:'btc_usdt', 1:'eth_usdt',
+  10:'sol_usdt', 14:'xrp_usdt', 5:'avax_usdt', 3:'doge_usdt',
+  15:'trx_usdt', 16:'ada_usdt', 90:'sui_usdt', 2:'link_usdt',
+  6034:'nike_usd', 6113:'spdia_usd', 6114:'qqqm_usd', 6115:'iwm_usd'
+};
+
 // --- CONFIGURATION SMART CONTRACT (PAYMASTER) ---
 
 const PAYMASTER_ADDRESS = '0x0afFdf07Cad8B950b823d8C953ee3d986a9A5FbC';
@@ -455,6 +468,11 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   // --- ACTIONS HANDLERS ---
   
   const getDisplaySymbol = (assetSymbol: string, assetId: number): string => {
+      // UTILISATION DE LA MAP EN PRIORITÉ
+      if (PAIR_MAP[assetId]) {
+          return PAIR_MAP[assetId].split('_')[0].toUpperCase() + "/USD";
+      }
+      // Fallback
       const baseSymbol = assetSymbol.split('/')[0];
       return assetId <= 1000 ? `${baseSymbol}/USD` : assetSymbol; 
   };
@@ -669,7 +687,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                            {activeTab === "cancelledOrders" && filteredCancelledOrders.map((order) => (
                               <tr key={order.id} className="hover:bg-gray-100 dark:hover:bg-zinc-900 transition duration-100">
                                 <td className="pl-4 pr-3 py-1.5 text-[11px] font-semibold text-gray-900 dark:text-white">{getDisplaySymbol(order.assetSymbol, order.asset_id)}</td>
-                                <td className="px-3 py-1.5 text-[11px] text-gray-500 dark:text-zinc-400">{formatDate(order.created_at)}</td>
+                                <td className="px-3 py-1.5 text-gray-500 dark:text-zinc-400">{formatDate(order.created_at)}</td>
                                 <td className="px-3 py-1.5 text-[11px]"><span className={order.long_side ? "text-blue-600 dark:text-blue-500 font-bold" : "text-red-600 dark:text-red-500 font-bold"}>{order.long_side ? "LONG" : "SHORT"}</span></td>
                                 <td className="px-3 py-1.5 text-[11px] text-gray-900 dark:text-zinc-200">{formatAssetPrice(order.target_x6, order.asset_id, assetSymbolMap)}</td>
                                 <td className="pr-4 pl-3 py-1.5 text-[11px] text-gray-900 dark:text-zinc-200">{order.size}</td>
