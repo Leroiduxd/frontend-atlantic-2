@@ -12,7 +12,7 @@ import { parseUnits, formatUnits, maxUint256 } from 'viem';
 import { useQueryClient } from '@tanstack/react-query'; // 🛑 IMPORT NÉCESSAIRE
 
 // --- ADRESSES ET ABIs ---
-const FAUCET_ADDRESS = '0x68c8eb31fbf00d4d37904ad76d68e78763429700';
+const FAUCET_ADDRESS = '0x7cBC6673db27CE4B055C1004e92A2A04E446771b';
 const ERC20_TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b';
 const VAULT_ADDRESS = '0xFebf0c9421f70041FbD3410ECE47D080f03fC7EE';
 
