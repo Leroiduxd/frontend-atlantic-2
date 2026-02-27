@@ -12,7 +12,7 @@ import { useAccount, useWriteContract, useReadContracts, usePublicClient } from 
 import { parseUnits, formatUnits } from 'viem';
 
 // --- CONSTANTES DU SMART CONTRACT ---
-const VAULT_ADDRESS = '0xFebf0c9421f70041FbD3410ECE47D080f03fC7EE';
+const VAULT_ADDRESS = '0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0';
 // TODO: Remplace par l'adresse de ton token ERC20 (ex: TUSD)
 const TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b'; 
 

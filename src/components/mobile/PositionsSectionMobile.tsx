@@ -2,68 +2,32 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
-import { useTrading } from "@/hooks/useTrading"; 
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useWebSocket, getAssetsByCategory } from "@/hooks/useWebSocket";
 import { useAssetConfig } from "@/hooks/useAssetConfig"; 
 import { Hash } from 'viem'; 
-import { usePaymaster } from "@/hooks/usePaymaster"; 
+import { usePaymaster } from "@/hooks/useBrokexPaymaster"; // Mis à jour avec le bon chemin
 import { EditStopsDialog } from "@/components/EditStopsDialog";
-import { useAccount, useWriteContract, usePublicClient } from 'wagmi';
-import { Loader2 } from 'lucide-react';
+import { useAccount, useWriteContract } from 'wagmi';
+import { Loader2, Plus, Minus, Check, X } from 'lucide-react';
+
+// --- MAPPING DES PAIRES (Ajouté du PC) ---
+const PAIR_MAP: { [key: number]: string } = {
+  6004:'aapl_usd', 6005:'amzn_usd', 6010:'coin_usd', 6003:'goog_usd',
+  6011:'gme_usd', 6009:'intc_usd', 6059:'ko_usd', 6068:'mcd_usd',
+  6001:'msft_usd', 6066:'ibm_usd', 6006:'meta_usd', 6002:'nvda_usd',
+  6000:'tsla_usd', 5010:'aud_usd', 5000:'eur_usd', 5002:'gbp_usd',
+  5013:'nzd_usd', 5011:'usd_cad', 5012:'usd_chf', 5001:'usd_jpy',
+  5501:'xag_usd', 5500:'xau_usd', 0:'btc_usdt', 1:'eth_usdt',
+  10:'sol_usdt', 14:'xrp_usdt', 5:'avax_usdt', 3:'doge_usdt',
+  15:'trx_usdt', 16:'ada_usdt', 90:'sui_usdt', 2:'link_usdt',
+  6034:'nike_usd', 6113:'spdia_usd', 6114:'qqqm_usd', 6115:'iwm_usd'
+};
 
 // --- CONFIGURATION SMART CONTRACT ---
-const PAYMASTER_ADDRESS = '0x0afFdf07Cad8B950b823d8C953ee3d986a9A5FbC';
+const PAYMASTER_ADDRESS = '0xC7eA1B52D20d0B4135ae5cc8E4225b3F12eA279B'; // Mis à jour avec l'adresse du PC
 const PAYMASTER_ABI = [
-  // VIEW: Get Trades Structs
-  {
-    "inputs": [
-      { "internalType": "address", "name": "trader", "type": "address" },
-      { "internalType": "uint256", "name": "cursor", "type": "uint256" },
-      { "internalType": "uint256", "name": "size", "type": "uint256" }
-    ],
-    "name": "getTradesPagination",
-    "outputs": [
-      {
-        "components": [
-          { "internalType": "address", "name": "trader", "type": "address" },
-          { "internalType": "uint32", "name": "assetId", "type": "uint32" },
-          { "internalType": "bool", "name": "isLong", "type": "bool" },
-          { "internalType": "bool", "name": "isLimit", "type": "bool" },
-          { "internalType": "uint8", "name": "leverage", "type": "uint8" },
-          { "internalType": "uint48", "name": "openPrice", "type": "uint48" },
-          { "internalType": "uint8", "name": "state", "type": "uint8" },
-          { "internalType": "uint32", "name": "openTimestamp", "type": "uint32" },
-          { "internalType": "uint128", "name": "fundingIndex", "type": "uint128" },
-          { "internalType": "uint48", "name": "closePrice", "type": "uint48" },
-          { "internalType": "int32", "name": "lotSize", "type": "int32" },
-          { "internalType": "uint48", "name": "stopLoss", "type": "uint48" },
-          { "internalType": "uint48", "name": "takeProfit", "type": "uint48" },
-          { "internalType": "uint64", "name": "lpLockedCapital", "type": "uint64" },
-          { "internalType": "uint64", "name": "marginUsdc", "type": "uint64" }
-        ],
-        "internalType": "struct IBrokexCore.Trade[]",
-        "name": "_trades",
-        "type": "tuple[]"
-      },
-      { "internalType": "uint256", "name": "total", "type": "uint256" }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  // VIEW: Get IDs
-  {
-    "inputs": [
-        { "internalType": "address", "name": "", "type": "address" },
-        { "internalType": "uint256", "name": "", "type": "uint256" }
-    ],
-    "name": "traderTradeIds",
-    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  // WRITE: Actions
   {
     "inputs": [{ "internalType": "uint256", "name": "tradeId", "type": "uint256" }],
     "name": "cancelOrder",
@@ -74,9 +38,31 @@ const PAYMASTER_ABI = [
   {
     "inputs": [
       { "internalType": "uint256", "name": "tradeId", "type": "uint256" },
+      { "internalType": "int32", "name": "lotsToClose", "type": "int32" },
       { "internalType": "bytes", "name": "oracleProof", "type": "bytes" }
     ],
     "name": "closePositionMarket",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "tradeId", "type": "uint256" },
+      { "internalType": "uint64", "name": "amount6", "type": "uint64" }
+    ],
+    "name": "addMargin",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "tradeId", "type": "uint256" },
+      { "internalType": "uint48", "name": "newSL", "type": "uint48" },
+      { "internalType": "uint48", "name": "newTP", "type": "uint48" }
+    ],
+    "name": "updateSLTP",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -92,7 +78,6 @@ const getMarketProof = async (assetId: number): Promise<Hash> => {
     return data.proof as Hash; 
 };
 
-// --- HELPERS FORMATAGE ---
 const formatAssetPrice = (valueX6: number, assetId: number, symbolMap: any): string => {
     if (valueX6 === 0) return "0.00";
     const assetInfo = symbolMap[assetId];
@@ -116,18 +101,25 @@ const formatDate = (timestamp: number) => {
 // =====================================================================
 
 // 1. Position Active
-const PositionCardMobile = ({ position, onAction, onEdit, symbolMap, getDisplaySymbol, isActionDisabled }: any) => {
+const PositionCardMobile = ({ position, onClose, onAddMargin, onEdit, symbolMap, getDisplaySymbol, isActionDisabled }: any) => {
+    const maxLots = position.lots - position.closed_lots;
+    const [isClosing, setIsClosing] = useState(false);
+    const [lotsInput, setLotsInput] = useState(maxLots);
+    
+    const [isAddingMargin, setIsAddingMargin] = useState(false);
+    const [marginInput, setMarginInput] = useState(10);
+
     const isPNLPositive = position.calculatedPNL !== null && position.calculatedPNL >= 0;
     const pnlUsdText = position.calculatedPNL !== null ? position.calculatedPNL.toFixed(2) : '---';
     const roePercentText = position.calculatedROE !== null ? position.calculatedROE.toFixed(2) : '---';
     
-    // THEME ROUGE / BLEU
     const pnlClass = isPNLPositive ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500';
     const sideClass = position.long_side 
         ? 'text-blue-600 bg-blue-100 dark:bg-blue-500/10' 
         : 'text-red-600 bg-red-100 dark:bg-red-500/10';
     
     const entryPrice = formatAssetPrice(position.entry_x6, position.asset_id, symbolMap);
+    const liqPrice = position.liq_x6 > 0 ? formatAssetPrice(position.liq_x6, position.asset_id, symbolMap) : '---';
     
     return (
         <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-gray-100 dark:border-zinc-800 mb-3 shadow-sm">
@@ -160,29 +152,72 @@ const PositionCardMobile = ({ position, onAction, onEdit, symbolMap, getDisplayS
                     <span className="font-mono dark:text-zinc-200">{position.size}</span>
                 </div>
                 <div className="text-right">
+                    <span className="text-slate-400 block mb-0.5">Liq. Price</span>
+                    <span className="font-mono text-red-500">{liqPrice}</span>
+                </div>
+                <div>
                     <span className="text-slate-400 block mb-0.5">Margin</span>
                     <span className="font-mono dark:text-zinc-200">${formatUSD(position.margin_usd6)}</span>
                 </div>
             </div>
 
-            <div className="flex gap-2">
-                <Button 
-                    variant="outline" 
-                    size="sm" 
-                    onClick={() => onEdit(position)}
-                    disabled={isActionDisabled}
-                    className="flex-1 h-9 text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                >
-                    TP/SL
-                </Button>
-                <Button 
-                    size="sm" 
-                    onClick={() => onAction(position)}
-                    disabled={isActionDisabled}
-                    className="flex-1 h-9 text-xs font-bold bg-slate-900 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
-                >
-                    {isActionDisabled ? <Loader2 className="w-3 h-3 animate-spin"/> : 'Close'}
-                </Button>
+            <div className="flex flex-col gap-2">
+                {/* Actions primaires */}
+                <div className="flex gap-2">
+                    <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => onEdit(position)}
+                        disabled={isActionDisabled}
+                        className="flex-1 h-9 text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                    >
+                        TP/SL
+                    </Button>
+                    
+                    {!isAddingMargin ? (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => { setIsAddingMargin(true); setMarginInput(10); setIsClosing(false); }}
+                            disabled={isActionDisabled}
+                            className="flex-1 h-9 text-xs font-semibold text-blue-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-blue-400"
+                        >
+                            + Margin
+                        </Button>
+                    ) : (
+                        <div className="flex-1 flex items-center justify-between h-9 bg-gray-50 dark:bg-zinc-900 border border-blue-300 dark:border-blue-800 rounded-md px-1">
+                            <button onClick={() => setMarginInput(prev => Math.max(1, prev - 10))} className="p-1 text-zinc-500"><Minus size={14}/></button>
+                            <span className="text-xs font-bold text-blue-600 dark:text-blue-400">${marginInput}</span>
+                            <button onClick={() => setMarginInput(prev => prev + 10)} className="p-1 text-zinc-500"><Plus size={14}/></button>
+                            <div className="flex gap-1 ml-1 border-l pl-1">
+                                <button onClick={() => { onAddMargin(position.id, marginInput); setIsAddingMargin(false); }} className="p-1 text-blue-600"><Check size={14}/></button>
+                                <button onClick={() => setIsAddingMargin(false)} className="p-1 text-zinc-500"><X size={14}/></button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Close Button / Close Selector */}
+                {!isClosing ? (
+                    <Button 
+                        size="sm" 
+                        onClick={() => { setIsClosing(true); setLotsInput(maxLots); setIsAddingMargin(false); }}
+                        disabled={isActionDisabled}
+                        className="w-full h-9 text-xs font-bold bg-slate-900 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                    >
+                        {isActionDisabled ? <Loader2 className="w-3 h-3 animate-spin"/> : 'Close Position'}
+                    </Button>
+                ) : (
+                    <div className="flex items-center justify-between h-9 bg-gray-50 dark:bg-zinc-900 border border-red-300 dark:border-red-900 rounded-md px-2">
+                        <button onClick={() => setLotsInput(prev => Math.max(1, prev - 1))} className="p-1 text-zinc-500"><Minus size={14}/></button>
+                        <span className="text-xs font-bold text-red-600 dark:text-red-400">{lotsInput} Lot(s)</span>
+                        <button onClick={() => setLotsInput(prev => Math.min(maxLots, prev + 1))} className="p-1 text-zinc-500"><Plus size={14}/></button>
+                        <div className="flex gap-2 ml-2 border-l pl-2">
+                            <button onClick={() => { onClose(position.id, position.asset_id, lotsInput); setIsClosing(false); }} className="p-1 text-blue-600"><Check size={16}/></button>
+                            <button onClick={() => setIsClosing(false)} className="p-1 text-zinc-500"><X size={16}/></button>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -190,7 +225,6 @@ const PositionCardMobile = ({ position, onAction, onEdit, symbolMap, getDisplayS
 
 // 2. Pending Order
 const OrderCardMobile = ({ order, onCancel, symbolMap, getDisplaySymbol, isActionDisabled }: any) => {
-    // THEME ROUGE / BLEU
     const sideClass = order.long_side 
         ? 'text-blue-600 bg-blue-100 dark:bg-blue-500/10' 
         : 'text-red-600 bg-red-100 dark:bg-red-500/10';
@@ -240,7 +274,6 @@ const HistoryCardMobile = ({ item, type, symbolMap, getDisplaySymbol }: any) => 
     const isClosed = type === 'closed';
     const isPNLPositive = item.pnl_usd6 !== null && item.pnl_usd6 >= 0;
     
-    // THEME ROUGE / BLEU
     const pnlClass = isPNLPositive ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500';
     const sideText = item.long_side ? 'LONG' : 'SHORT';
     const sideColor = item.long_side ? 'text-blue-500' : 'text-red-500';
@@ -279,10 +312,20 @@ const HistoryCardMobile = ({ item, type, symbolMap, getDisplaySymbol }: any) => 
 };
 
 // =====================================================================
-// 🌟 COMPOSANT PRINCIPAL
+// 🌟 COMPOSANT PRINCIPAL (Props ajoutées pour matcher PC)
 // =====================================================================
 
-export const PositionsSectionMobile = () => {
+interface PositionsSectionMobileProps {
+    paymasterEnabled?: boolean;
+    currentAssetId?: number | null;
+    currentAssetSymbol?: string;
+}
+
+export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
+    paymasterEnabled = false,
+    currentAssetId = null,
+    currentAssetSymbol = ""
+}) => {
   const [activeTab, setActiveTab] = useState<"positions" | "orders" | "closed" | "cancelled">("positions");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState<any>(null);
@@ -294,51 +337,38 @@ export const PositionsSectionMobile = () => {
   // Hooks
   const { address } = useAccount();
   const { toast } = useToast();
-  const { executeGaslessAction, isLoading: paymasterLoading } = usePaymaster();
   const { data: wsData } = useWebSocket();
   const { configs: assetConfigs, convertLotsToDisplay } = useAssetConfig(); 
   
-  // WAGMI Contracts
-  const publicClient = usePublicClient();
+  // WAGMI & Paymaster Contracts
   const { writeContractAsync, isPending: isWritePending } = useWriteContract();
-  const { updateStops } = useTrading(); // Pour l'update SL/TP non gasless
+  const { 
+    executeCloseMarket, 
+    executeAddMargin, 
+    executeUpdateSLTP, 
+    executeCancelOrder, 
+    isLoading: paymasterLoading 
+  } = usePaymaster();
 
   // ------------------------------------------------------------------
-  //  FETCHING LOGIC (COPIÉE DU PC)
+  //  FETCHING LOGIC API (IDENTIQUE AU PC)
   // ------------------------------------------------------------------
   const fetchTrades = async () => {
-    if (!address || !publicClient) return;
+    if (!address) return;
     setIsLoadingTrades(true);
     try {
-        const cursor = 0n;
-        const size = 50n; 
+        const resIds = await fetch(`https://api.brokex.trade/trader/${address}/ids?state=all`);
+        if (!resIds.ok) throw new Error("Failed to fetch trade IDs");
+        const { ids } = await resIds.json();
 
-        // 1. Get Structs
-        const result = await publicClient.readContract({
-            address: PAYMASTER_ADDRESS,
-            abi: PAYMASTER_ABI,
-            functionName: 'getTradesPagination',
-            args: [address, cursor, size]
-        });
-        const trades = result[0];
-        
-        // 2. Get IDs
-        const idPromises = trades.map((_, i) => 
-            publicClient.readContract({
-                address: PAYMASTER_ADDRESS,
-                abi: PAYMASTER_ABI,
-                functionName: 'traderTradeIds',
-                args: [address, cursor + BigInt(i)]
-            })
+        const detailPromises = ids.map((id: number) => 
+            fetch(`https://api.brokex.trade/trade/${id}`).then(r => r.json())
         );
-        const ids = await Promise.all(idPromises);
-
-        // 3. Merge
-        const merged = trades.map((trade, i) => ({ ...trade, realId: ids[i] }));
-        setRawTrades(merged);
-
+        
+        const trades = await Promise.all(detailPromises);
+        setRawTrades(trades.filter(t => !t.error));
     } catch (e) {
-        console.error("Error fetching trades:", e);
+        console.error("Error fetching trades from API:", e);
     } finally {
         setIsLoadingTrades(false);
     }
@@ -348,10 +378,10 @@ export const PositionsSectionMobile = () => {
     fetchTrades();
     const interval = setInterval(fetchTrades, 5000);
     return () => clearInterval(interval);
-  }, [address, publicClient]);
+  }, [address]);
 
   // ------------------------------------------------------------------
-  //  DATA PROCESSING (MAPPINGS & CALCULS)
+  //  DATA PROCESSING (MAPPINGS & CALCULS - IDENTIQUE AU PC)
   // ------------------------------------------------------------------
   const assetSymbolMap = useMemo(() => {
     return assetConfigs.reduce((map, config) => {
@@ -389,33 +419,46 @@ export const PositionsSectionMobile = () => {
 
     rawTrades.forEach((t) => {
         const position = {
-            id: Number(t.realId), // REAL ID
-            asset_id: t.assetId,
-            long_side: t.isLong,
-            is_limit: t.isLimit,
-            leverage_x: t.leverage,
+            id: Number(t.id),
+            asset_id: Number(t.assetId),
+            long_side: Boolean(t.isLong),
+            is_limit: Boolean(t.isLimit),
+            leverage_x: Number(t.leverage),
             entry_x6: Number(t.openPrice),
             margin_usd6: Number(t.marginUsdc),
             sl_x6: Number(t.stopLoss),
             tp_x6: Number(t.takeProfit),
             lots: Number(t.lotSize),
+            closed_lots: Number(t.closedLotSize || 0), // Ajouté du PC
             created_at: Number(t.openTimestamp),
             target_x6: Number(t.openPrice),
-            state: t.state,
+            state: Number(t.state),
             closePriceX6: Number(t.closePrice),
             pnl_usd6: null as number | null
         };
 
         const assetInfo = assetSymbolMap[position.asset_id];
         const assetWs = assetMap[position.asset_id];
-        
+        const remainingLots = position.lots - position.closed_lots;
+
+        // Calcul du prix de liquidation (Logique du PC)
+        let liqPriceX6 = 0;
+        if (position.entry_x6 > 0 && position.leverage_x > 0) {
+            if (position.long_side) {
+                liqPriceX6 = position.entry_x6 * (1 - 0.9 / position.leverage_x);
+            } else {
+                liqPriceX6 = position.entry_x6 * (1 + 0.9 / position.leverage_x);
+            }
+        }
+
         const enriched = {
             ...position,
             assetSymbol: assetInfo ? assetInfo.symbol : `Asset #${position.asset_id}`,
-            size: convertLotsToDisplay(position.lots, position.asset_id).toFixed(2),
+            size: convertLotsToDisplay(remainingLots, position.asset_id).toFixed(2),
             priceDecimals: assetInfo ? assetInfo.priceDecimals : 2,
             priceStep: assetInfo ? assetInfo.priceStep : 0.01,
             currentPrice: assetWs?.currentPrice ? assetWs.currentPrice.toFixed(assetInfo?.priceDecimals || 2) : '---',
+            liq_x6: liqPriceX6,
             calculatedPNL: null as number | null,
             calculatedROE: null as number | null,
             orderTypeString: position.is_limit ? 'Limit' : 'Stop'
@@ -461,25 +504,76 @@ export const PositionsSectionMobile = () => {
 
   }, [rawTrades, assetMap, assetSymbolMap, convertLotsToDisplay]);
 
-  // --- ACTIONS ---
+  // --- ACTIONS LOGIC (IDENTIQUE AU PC) ---
   
   const getDisplaySymbol = (assetSymbol: string, assetId: number): string => {
+      if (PAIR_MAP[assetId]) {
+          return PAIR_MAP[assetId].split('_')[0].toUpperCase() + "/USD";
+      }
       const baseSymbol = assetSymbol.split('/')[0];
       return assetId <= 1000 ? `${baseSymbol}/USD` : assetSymbol; 
   };
 
-  const handleClosePosition = async (position: any) => { 
+  const handleClosePosition = async (id: number, assetId: number, lotsToClose: number) => { 
     try {
-       // Logic Standard (Non-Paymaster pour être sûr)
-       const proof = await getMarketProof(position.asset_id); 
-       await writeContractAsync({
-           address: PAYMASTER_ADDRESS,
-           abi: PAYMASTER_ABI,
-           functionName: 'closePositionMarket',
-           args: [BigInt(position.id), proof]
-       });
-       toast({ title: "Close Order Sent", description: "Transaction submitted." });
-       setTimeout(() => fetchTrades(), 3000);
+        if (paymasterEnabled) {
+           await executeCloseMarket({ tradeId: id, assetId, lotsToClose });
+           toast({ title: "Close Request Sent", description: "Processing via Paymaster..." });
+        } else {
+           const proof = await getMarketProof(assetId); 
+           await writeContractAsync({
+               address: PAYMASTER_ADDRESS,
+               abi: PAYMASTER_ABI,
+               functionName: 'closePositionMarket',
+               args: [BigInt(id), lotsToClose, proof]
+           });
+           toast({ title: "Close Order Sent", description: "Transaction submitted." });
+        }
+        setTimeout(() => fetchTrades(), 3000);
+    } catch (e: any) {
+        toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleAddMargin = async (id: number, amount: number) => {
+      try {
+          const amount6Num = Math.floor(amount * 1e6); 
+          if (paymasterEnabled) {
+              await executeAddMargin({ tradeId: id, amount6: amount6Num });
+              toast({ title: "Add Margin Sent", description: "Processing via Paymaster..." });
+          } else {
+              await writeContractAsync({
+                  address: PAYMASTER_ADDRESS,
+                  abi: PAYMASTER_ABI,
+                  functionName: 'addMargin',
+                  args: [BigInt(id), BigInt(amount6Num)]
+              });
+              toast({ title: "Add Margin Sent", description: "Transaction submitted." });
+          }
+          setTimeout(() => fetchTrades(), 3000);
+      } catch (e: any) {
+          toast({ title: "Error", description: e.message, variant: "destructive" });
+      }
+  };
+
+  const handleUpdateStopsLogic = async ({ id, slPrice, tpPrice, isSLChanged, isTPChanged }: any) => { 
+    try {
+        const newSL = slPrice ? Math.round(Number(slPrice) * 1000000) : 0;
+        const newTP = tpPrice ? Math.round(Number(tpPrice) * 1000000) : 0;
+
+        if (paymasterEnabled) {
+            await executeUpdateSLTP({ tradeId: id, newSL, newTP });
+            toast({ title: "Update Request Sent", description: "Processing via Paymaster..." });
+        } else {
+            await writeContractAsync({
+                address: PAYMASTER_ADDRESS,
+                abi: PAYMASTER_ABI,
+                functionName: 'updateSLTP',
+                args: [BigInt(id), BigInt(newSL), BigInt(newTP)]
+            });
+            toast({ title: "SL/TP Updated", description: "Transaction submitted." });
+        }
+        setTimeout(() => fetchTrades(), 2000);
     } catch (e: any) {
         toast({ title: "Error", description: e.message, variant: "destructive" });
     }
@@ -487,24 +581,22 @@ export const PositionsSectionMobile = () => {
 
   const handleCancelOrder = async (id: number) => { 
     try {
-        await writeContractAsync({
-            address: PAYMASTER_ADDRESS,
-            abi: PAYMASTER_ABI,
-            functionName: 'cancelOrder',
-            args: [BigInt(id)]
-        });
-        toast({ title: "Cancel Order Sent", description: "Transaction submitted." });
+        if (paymasterEnabled) {
+            await executeCancelOrder({ tradeId: id });
+            toast({ title: "Cancel Request Sent", description: "Processing via Paymaster..." });
+        } else {
+            await writeContractAsync({
+                address: PAYMASTER_ADDRESS,
+                abi: PAYMASTER_ABI,
+                functionName: 'cancelOrder',
+                args: [BigInt(id)]
+            });
+            toast({ title: "Cancel Order Sent", description: "Transaction submitted." });
+        }
         setTimeout(() => fetchTrades(), 3000);
     } catch (e: any) {
         toast({ title: "Error", description: e.message, variant: "destructive" });
     }
-  };
-
-  const handleUpdateStopsLogic = async ({ id, slPrice, tpPrice, isSLChanged, isTPChanged }: any) => { 
-    const newSLx6 = slPrice ? BigInt(Math.round(Number(slPrice) * 1000000)) : 0n;
-    const newTPx6 = tpPrice ? BigInt(Math.round(Number(tpPrice) * 1000000)) : 0n;
-    if (isSLChanged) await updateStops(id, newSLx6, isTPChanged ? newTPx6 : null);
-    setTimeout(() => fetchTrades(), 2000);
   };
 
   const isActionDisabled = paymasterLoading || isWritePending;
@@ -512,7 +604,7 @@ export const PositionsSectionMobile = () => {
   return (
     <div className="flex flex-col h-full bg-slate-50 dark:bg-black font-['Source_Code_Pro',_monospace]">
         
-        {/* Navigation Onglets (Scrollable) */}
+        {/* Navigation Onglets */}
         <div className="flex p-2 bg-white dark:bg-zinc-950 border-b border-gray-100 dark:border-zinc-800 sticky top-0 z-10 overflow-x-auto no-scrollbar gap-2">
             {[
                 { id: 'positions', label: `Open (${openPositions.length})` },
@@ -541,7 +633,8 @@ export const PositionsSectionMobile = () => {
                         <PositionCardMobile 
                             key={pos.id} 
                             position={pos} 
-                            onAction={handleClosePosition} 
+                            onClose={handleClosePosition} 
+                            onAddMargin={handleAddMargin}
                             onEdit={(p: any) => { setSelectedPosition(p); setEditDialogOpen(true); }}
                             symbolMap={assetSymbolMap}
                             getDisplaySymbol={getDisplaySymbol}
@@ -603,7 +696,7 @@ export const PositionsSectionMobile = () => {
             )}
         </div>
 
-        {/* Dialog Edit Stops */}
+        {/* Dialog Edit Stops (Resté en popup pour le mobile, meilleur UX) */}
         {selectedPosition && (
             <EditStopsDialog
                 open={editDialogOpen}

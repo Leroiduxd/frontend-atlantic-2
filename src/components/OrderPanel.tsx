@@ -4,20 +4,38 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useVault } from "@/hooks/useVault"; // On garde pour refetch mais on utilise wagmi pour les data
+import { useVault } from "@/hooks/useVault"; 
 import { useToast } from "@/hooks/use-toast";
 import { DepositDialog } from "@/components/DepositDialog";
 import { Asset } from "./ChartControls";
 import { useAssetConfig } from "@/hooks/useAssetConfig";
 import { MarketClosedBanner } from "./MarketClosedBanner";
 import { useWriteContract, useAccount, usePublicClient, useReadContracts } from 'wagmi';
-import { usePaymaster } from "@/hooks/usePaymaster";
+import { usePaymaster } from "@/hooks/useBrokexPaymaster"; 
 import { Landmark, ChevronUp, ChevronDown, Fuel, Eye, EyeOff } from 'lucide-react'; 
 import { Hash, formatUnits } from 'viem';
 import { useMarketStatus } from "@/hooks/useMarketStatus";
 
+// --- MAPPING DES TAILLES DE LOTS ---
+// Clé = assetId, Valeur = quantité d'actif pour 1 lot au niveau de l'affichage
+const ASSET_LOT_SIZES: Record<number, number> = {
+    0: 0.01,    // btc_usdt
+    1: 0.1,     // eth_usdt
+    2: 1,       // link_usdt
+    3: 1000,    // doge_usdt
+    5: 1,       // avax_usdt
+    10: 1,      // sol_usdt
+    14: 100,    // xrp_usdt
+    15: 1000,   // trx_usdt
+    16: 100,    // ada_usdt
+    90: 10,     // sui_usdt
+    5500: 0.01, // xau_usd
+    5501: 0.1,  // xag_usd
+    // Par défaut, tous les autres (actions, indices, forex) vaudront 1
+};
+
 // --- CONSTANTES TRADING ---
-const TRADING_ADDRESS = '0x0afFdf07Cad8B950b823d8C953ee3d986a9A5FbC' as const;
+const TRADING_ADDRESS = '0xC7eA1B52D20d0B4135ae5cc8E4225b3F12eA279B' as const;
 const TRADING_ABI = [
     {
         inputs: [
@@ -52,8 +70,8 @@ const TRADING_ABI = [
     }
 ] as const;
 
-// --- CONSTANTES VAULT (NOUVEAU) ---
-const VAULT_ADDRESS = '0xFebf0c9421f70041FbD3410ECE47D080f03fC7EE' as const;
+// --- CONSTANTES VAULT ---
+const VAULT_ADDRESS = '0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0' as const;
 const VAULT_ABI = [
     {
         inputs: [{ internalType: "address", name: "trader", type: "address" }],
@@ -150,7 +168,7 @@ const OrderPanel = ({
     const [tpEnabled, setTpEnabled] = useState(false);
     const [slEnabled, setSlEnabled] = useState(false);
     const [leverage, setLeverage] = useState(10);
-    const [lotsDisplay, setLotsDisplay] = useState(1); // Default à 1
+    const [assetAmount, setAssetAmount] = useState<number | string>(1); // Remplace lotsDisplay
     const [limitPrice, setLimitPrice] = useState('');
     const [tpPrice, setTpPrice] = useState('');
     const [slPrice, setSlPrice] = useState('');
@@ -160,12 +178,12 @@ const OrderPanel = ({
     const { refetchAll: refetchVault } = useVault();
     const { getConfigById } = useAssetConfig();
     const { address, chain: currentChain } = useAccount();
-    const { executeGaslessOrder, isLoading: paymasterLoading } = usePaymaster();
+    const { executeOpenMarket, executePlaceOrder, isLoading: paymasterLoading } = usePaymaster();
+    
     const { writeContractAsync } = useWriteContract();
     const { toast } = useToast();
     const publicClient = usePublicClient({ chainId: currentChain?.id });
 
-    // --- LECTURE DES BALANCES VIA WAGMI ---
     const { data: balanceData, refetch: refetchBalances } = useReadContracts({
         contracts: [
             {
@@ -181,10 +199,7 @@ const OrderPanel = ({
                 args: address ? [address] : undefined,
             }
         ],
-        query: {
-            enabled: !!address,
-            refetchInterval: 5000 
-        }
+        query: { enabled: !!address, refetchInterval: 5000 }
     });
 
     const totalBalanceVal = balanceData?.[0]?.result ? Number(formatUnits(balanceData[0].result, 6)) : 0;
@@ -193,7 +208,6 @@ const OrderPanel = ({
 
     const loading = localLoading || paymasterLoading;
     
-    // CORRECTION ERREUR VIEM -1: On s'assure que l'ID n'est jamais négatif
     const finalAssetIdForTx = useMemo(() => {
         const id = Number(selectedAsset.id);
         return (isNaN(id) || id < 0) ? 0 : id;
@@ -201,6 +215,23 @@ const OrderPanel = ({
 
     const marketStatus = useMarketStatus(finalAssetIdForTx);
     const isMarketOpen = marketStatus.isOpen;
+
+    // --- LOGIQUE DES LOTS ---
+    const lotSizeInAsset = ASSET_LOT_SIZES[finalAssetIdForTx] || 1;
+    const amountDecimals = Math.max(0, -Math.floor(Math.log10(lotSizeInAsset)));
+    
+    // Convertir l'input en lots réels pour le smart contract (Arrondi au plus proche)
+    const actualLots = useMemo(() => {
+        return Math.max(1, Math.round(Number(assetAmount) / lotSizeInAsset));
+    }, [assetAmount, lotSizeInAsset]);
+
+    // Montant effectif (pour recalculer le PnL, la marge et les coûts si l'utilisateur a rentré un montant bizarre)
+    const effectiveAmount = actualLots * lotSizeInAsset;
+
+    // Réinitialiser la quantité affichée au minimum valide quand on change d'actif
+    useEffect(() => {
+        setAssetAmount(lotSizeInAsset);
+    }, [finalAssetIdForTx, lotSizeInAsset]);
 
     useEffect(() => {
         if (!isMarketOpen && orderType === "market") setOrderType("limit");
@@ -210,14 +241,10 @@ const OrderPanel = ({
 
     const { priceDecimals, priceStep } = useMemo(() => {
         const decimals = Math.max(0, Math.round(Math.log10(1000000 / (assetConfig?.tick_size_usd6 || 10000))));
-        return {
-            priceDecimals: decimals,
-            priceStep: 1 / (10 ** decimals),
-        };
+        return { priceDecimals: decimals, priceStep: 1 / (10 ** decimals) };
     }, [assetConfig]);
 
     useEffect(() => {
-        // Reset lots à 1 par defaut si besoin, ou logique custom
         if (currentPrice > 0 && (orderType === 'limit' || orderType === 'stop')) {
             setLimitPrice(currentPrice.toFixed(priceDecimals));
         }
@@ -225,11 +252,10 @@ const OrderPanel = ({
 
     const calculations = useMemo(() => {
         const price = (orderType === 'limit' || orderType === 'stop') && limitPrice ? Number(limitPrice) : currentPrice;
+        if (isNaN(price) || price <= 0 || effectiveAmount <= 0) return { value: 0, cost: 0, commission: 0, liqPriceLong: 0, liqPriceShort: 0 };
         
-        if (isNaN(price) || price <= 0 || lotsDisplay <= 0) return { value: 0, cost: 0, commission: 0, liqPriceLong: 0, liqPriceShort: 0 };
-        
-        // Estimation basique pour l'UI (Display only)
-        const displayNotional = lotsDisplay * price; 
+        // La valeur nominale est calculée sur le montant EFFECTIF (en unités d'actif) * le prix
+        const displayNotional = effectiveAmount * price; 
         const commissionRate = 0.001; 
 
         return {
@@ -239,16 +265,17 @@ const OrderPanel = ({
             liqPriceLong: price * (1 - 0.99 / leverage),
             liqPriceShort: price * (1 + 0.99 / leverage),
         };
-    }, [lotsDisplay, leverage, limitPrice, currentPrice, orderType]);
+    }, [effectiveAmount, leverage, limitPrice, currentPrice, orderType]);
 
     const formatPrice = (value: number) => value === 0 ? "0.00" : value.toFixed(priceDecimals > 5 ? 5 : priceDecimals || 2);
     const getDisplayValue = useCallback((value: string | number) => showBalance ? value : '***', [showBalance]);
 
     const handleTrade = async (longSide: boolean) => {
         if (!isMarketOpen && orderType === 'market') return toast({ title: 'Market Closed', variant: "destructive" });
+        
         const numLimitPrice = Number(limitPrice);
-        const numSlPrice = slEnabled ? Number(slPrice) : undefined;
-        const numTpPrice = tpEnabled ? Number(tpPrice) : undefined;
+        const numSlPrice = slEnabled && slPrice ? Number(slPrice) : undefined;
+        const numTpPrice = tpEnabled && tpPrice ? Number(tpPrice) : undefined;
         const requiredMargin = calculations.cost * 1.01;
 
         if (availableBalanceVal < requiredMargin) return toast({ title: 'Insufficient Balance', variant: "destructive" });
@@ -257,24 +284,33 @@ const OrderPanel = ({
         let txHash: Hash | string | undefined;
 
         try {
-            // CORRECTION LOTS: On prend directement la valeur de l'input
-            const actualLots = Number(lotsDisplay); 
+            const slX6 = numSlPrice ? Math.round(numSlPrice * 1000000) : 0;
+            const tpX6 = numTpPrice ? Math.round(numTpPrice * 1000000) : 0;
 
             if (paymasterEnabled) {
-                txHash = await executeGaslessOrder({
-                    assetId: finalAssetIdForTx, 
-                    longSide, 
-                    leverage, 
-                    lots: actualLots, 
-                    orderType: orderType, 
-                    price: (orderType === 'limit' || orderType === 'stop') ? numLimitPrice : undefined, 
-                    slPrice: numSlPrice, 
-                    tpPrice: numTpPrice,
-                });
+                if (orderType === 'limit' || orderType === 'stop') {
+                    const targetPriceX6 = Math.round(numLimitPrice * 1000000);
+                    txHash = await executePlaceOrder({
+                        assetId: finalAssetIdForTx,
+                        isLong: longSide,
+                        isLimit: orderType === 'limit',
+                        leverage: leverage,
+                        lotSize: actualLots, // Envoi en lot contractuel
+                        targetPrice: targetPriceX6,
+                        stopLoss: slX6,
+                        takeProfit: tpX6
+                    });
+                } else {
+                    txHash = await executeOpenMarket({
+                        assetId: finalAssetIdForTx,
+                        isLong: longSide,
+                        leverage: leverage,
+                        lotSize: actualLots, // Envoi en lot contractuel
+                        stopLoss: slX6,
+                        takeProfit: tpX6
+                    });
+                }
             } else {
-                const slX6 = numSlPrice ? Math.round(numSlPrice * 1000000) : 0;
-                const tpX6 = numTpPrice ? Math.round(numTpPrice * 1000000) : 0;
-                
                 if (orderType === 'limit' || orderType === 'stop') {
                     const isLimit = orderType === 'limit'; 
                     const targetPriceX6 = Math.round(numLimitPrice * 1000000);
@@ -288,7 +324,7 @@ const OrderPanel = ({
                             longSide, 
                             isLimit, 
                             leverage, 
-                            actualLots, // Envoi direct de 1 si input = 1
+                            actualLots, // Envoi en lot contractuel
                             BigInt(targetPriceX6), 
                             BigInt(slX6), 
                             BigInt(tpX6)
@@ -304,7 +340,7 @@ const OrderPanel = ({
                             finalAssetIdForTx, 
                             longSide, 
                             leverage, 
-                            actualLots, // Envoi direct de 1 si input = 1
+                            actualLots, // Envoi en lot contractuel
                             BigInt(slX6), 
                             BigInt(tpX6), 
                             proof
@@ -319,7 +355,7 @@ const OrderPanel = ({
             refetchVault();
             refetchBalances();
         } catch (e: any) {
-            console.error(e);
+            console.error("Order error:", e);
             toast({ title: 'Order failed', description: e.message || "An error occurred", variant: "destructive" });
         } finally {
             setLocalLoading(false);
@@ -332,7 +368,6 @@ const OrderPanel = ({
 
             <div className="flex-grow p-4 space-y-5 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 
-                {/* 1. Tabs */}
                 <div className="flex justify-between items-center border-b border-border dark:border-zinc-800 text-muted-foreground font-medium text-sm pt-1 pb-2">
                     <div className="flex">
                         <div 
@@ -365,7 +400,6 @@ const OrderPanel = ({
                     </div>
                 </div>
 
-                {/* 2. Price Input */}
                 {(orderType === "limit" || orderType === "stop") && (
                     <div>
                         <span className="text-light-text dark:text-zinc-500 text-xs block mb-1">
@@ -375,13 +409,20 @@ const OrderPanel = ({
                     </div>
                 )}
 
-                {/* 3. Amount (LOTS - 1 to 1 mapping) */}
+                {/* Amount basé sur la configuration de l'actif */}
                 <div>
-                    <span className="text-light-text dark:text-zinc-500 text-xs block mb-1">Lots ({selectedAsset.symbol.split('/')[0]})</span>
-                    <StepController value={lotsDisplay} onChange={setLotsDisplay} step={1} min={1} decimals={0} />
+                    <span className="text-light-text dark:text-zinc-500 text-xs block mb-1">
+                        Amount ({selectedAsset.symbol.split('/')[0]})
+                    </span>
+                    <StepController 
+                        value={assetAmount} 
+                        onChange={setAssetAmount} 
+                        step={lotSizeInAsset} 
+                        min={lotSizeInAsset} 
+                        decimals={amountDecimals} 
+                    />
                 </div>
 
-                {/* 4. TP/SL */}
                 <div className="space-y-3">
                     <div>
                         <label className="flex items-center text-foreground dark:text-zinc-300 cursor-pointer mb-2">
@@ -399,22 +440,19 @@ const OrderPanel = ({
                     </div>
                 </div>
 
-                {/* 5. Buttons */}
                 <div className="flex space-x-3 pt-2 pb-3">
                     <Button onClick={() => handleTrade(true)} disabled={loading} className={`flex-1 font-bold ${loading ? 'bg-zinc-800' : 'bg-trading-blue hover:opacity-90'} text-white`}>{loading ? '...' : 'Buy'}</Button>
                     <Button onClick={() => handleTrade(false)} disabled={loading} className={`flex-1 font-bold ${loading ? 'bg-zinc-800' : 'bg-trading-red hover:opacity-90'} text-white`}>{loading ? '...' : 'Sell'}</Button>
                 </div>
 
-                {/* 6. Calcs */}
                 <div className="text-xs space-y-1.5 pt-3 border-t border-border dark:border-zinc-800">
                     <div className="flex justify-between text-light-text dark:text-zinc-500"><span>Value</span><span className="text-foreground dark:text-zinc-200">${formatPrice(calculations.value)}</span></div>
-                    <div className="flex justify-between text-light-text dark:text-zinc-500"><span>Cost</span><span className="text-foreground dark:text-zinc-200">${formatPrice(calculations.cost)}</span></div>
+                    <div className="flex justify-between text-light-text dark:text-zinc-500"><span>Cost (Margin)</span><span className="text-foreground dark:text-zinc-200">${formatPrice(calculations.cost)}</span></div>
                     <div className="flex justify-between text-light-text dark:text-zinc-500"><span>Commission</span><span className="text-foreground dark:text-zinc-200">${formatPrice(calculations.commission)}</span></div>
                     <div className="flex justify-between text-light-text dark:text-zinc-500"><span>Liq. Price</span><span className="text-foreground dark:text-zinc-400 text-[10px]">${formatPrice(calculations.liqPriceLong)} / ${formatPrice(calculations.liqPriceShort)}</span></div>
                 </div>
             </div>
 
-            {/* 7. Deposit Panel - MIS À JOUR AVEC NOUVELLES DONNEES */}
             <div className="flex-shrink-0 mx-4 mt-2 mb-3 p-4 h-[180px] bg-blue-50 dark:bg-zinc-900 rounded-lg relative overflow-hidden border border-transparent dark:border-zinc-800">
                 <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-[33%]">
                     <Landmark className="w-40 h-40 text-blue-200 dark:text-zinc-800 opacity-40" />
