@@ -12,7 +12,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { parseUnits, formatUnits } from 'viem';
 
 // --- CONSTANTES DU SMART CONTRACT (VAULT) ---
-const VAULT_ADDRESS = '0xFebf0c9421f70041FbD3410ECE47D080f03fC7EE';
+const VAULT_ADDRESS = '0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0';
 const VAULT_ABI = [
     {
         "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }],
