@@ -29,8 +29,8 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 
 // --- CONFIGURATION & ABI (Identique au Desktop) ---
-const VAULT_ADDRESS = "0x90bE27e7e7a5D129F43e3D461bf70241DBaee737";
-const USDC_ADDRESS = "0x0000000000000000000000000000000000000000"; 
+const VAULT_ADDRESS = "0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0";
+const USDC_ADDRESS = "0x16b90aeb3de140dde993da1d5734bca28574702b"; 
 
 const VAULT_ABI = [
   // READS
