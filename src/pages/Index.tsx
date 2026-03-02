@@ -9,7 +9,7 @@ import { WelcomeOverlay } from "@/components/WelcomeOverlay";
 import MobileLayout from "@/components/mobile/MobileLayout"; 
 
 // 👇 1. IMPORT DU NOUVEAU COMPOSANT SCAN
-import Scan from "@/components/Scan"; // Ajuste le chemin selon où tu as sauvegardé scan.tsx
+import Scan from "@/components/scan"; // Ajuste le chemin selon où tu as sauvegardé scan.tsx
 
 const Index: React.FC = () => {
   // 👇 2. AJOUT DE 'scan' DANS LE STATE
