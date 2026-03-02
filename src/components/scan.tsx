@@ -6,9 +6,13 @@ import { useWebSocket, getAssetsByCategory } from '@/hooks/useWebSocket';
 import { BottomBar } from "@/components/BottomBar";
 import { format } from "date-fns";
 
+// NOUVEAUX IMPORTS CORRIGÉS
+import { useTheme } from "next-themes";
+import { AssetIcon } from "@/hooks/useAssetIcon"; 
+
 // --- CONSTANTES ---
 const ASSET_LOT_SIZES: Record<number, number> = {
-  0: 0.01, 1: 0.01, 2: 1, 3: 1000, 5: 1, 10: 1, 14: 100, 15: 1000, 16: 100, 90: 10, 5500: 0.01, 5501: 0.1,
+  0: 0.01, 1: 0.1, 2: 1, 3: 1000, 5: 1, 10: 1, 14: 100, 15: 1000, 16: 100, 90: 10, 5500: 0.01, 5501: 0.1,
 };
 
 const PAIR_MAP: { [key: number]: string } = {
@@ -170,6 +174,9 @@ export default function Scan() {
 // VUE 1 : OVERVIEW (Dashboard global)
 // ============================================================================
 function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: any, onNavigateTrader: (query: string) => void, onNavigateAsset: (id: number) => void }) {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   const [totalTraders, setTotalTraders] = useState(0);
   const [openTradesStats, setOpenTradesStats] = useState<any[]>([]);
   const [exposures, setExposures] = useState<any>({});
@@ -345,7 +352,7 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
               <div className="flex justify-between items-center cursor-pointer" onClick={() => onNavigateAsset(currentTopMarketCarousel.id)}>
                   <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-300 flex items-center justify-center">
-                          <span className="text-xs font-bold">{ASSET_INFO[currentTopMarketCarousel.id]?.symbol || '•'}</span>
+                          <AssetIcon assetId={currentTopMarketCarousel.id} isDark={isDark} size="16px" />
                       </div>
                       <div>
                           <p className="font-bold text-slate-900 dark:text-white text-sm tracking-tight">{currentTopMarketCarousel.name.replace('_', '/').toUpperCase()}</p>
@@ -374,7 +381,9 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
                 return (
                   <div key={trade.id || i} className="flex justify-between items-center py-2.5 hover:bg-slate-50 dark:hover:bg-zinc-900/50 px-3 rounded transition-colors cursor-pointer group" onClick={() => onNavigateTrader(trade.trader)}>
                       <div className="flex items-center gap-3">
-                          <FileText size={14} className="text-slate-400 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-300 transition-colors" />
+                          <div className="w-6 h-6 flex items-center justify-center text-slate-400 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-300 transition-colors">
+                              <AssetIcon assetId={trade.assetId} isDark={isDark} size="14px" />
+                          </div>
                           <div>
                               <p className="text-[11px] font-semibold text-slate-700 dark:text-zinc-200 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">
                                   {isClose ? 'Close' : 'Open'} <span className="font-bold">{getDisplaySymbol(trade.assetId).replace('/USD', '')}</span> <span className={trade.isLong ? 'text-blue-500' : 'text-red-500'}>{trade.isLong ? 'Long' : 'Short'}</span>
@@ -403,7 +412,9 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
               <div key={i} className="flex justify-between items-center py-2.5 hover:bg-slate-50 dark:hover:bg-zinc-900/50 px-3 rounded transition-colors group cursor-pointer" onClick={() => onNavigateAsset(market.id)}>
                 <div className="flex items-center gap-4">
                   <span className="text-slate-400 dark:text-zinc-600 text-xs font-mono w-4">{i + 1}</span>
-                  <div className="w-6 h-6 rounded bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 text-slate-500 dark:text-zinc-400 text-[10px] flex items-center justify-center">{ASSET_INFO[market.id]?.symbol || '•'}</div>
+                  <div className="w-6 h-6 rounded bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 flex items-center justify-center">
+                      <AssetIcon assetId={market.id} isDark={isDark} size="14px" />
+                  </div>
                   <div><p className="text-[11px] font-semibold tracking-tight text-slate-700 dark:text-zinc-200 group-hover:text-black dark:group-hover:text-white transition-colors">{market.name.replace('_', '/').toUpperCase()}</p><p className="text-[10px] text-slate-500 dark:text-zinc-500 font-mono">Price: {formatCurrency(market.price)}</p></div>
                 </div>
                 <div className="text-right"><p className="text-[11px] font-mono text-slate-900 dark:text-white">{formatCurrency(market.oiUSD)}</p><p className="text-[9px] text-slate-400 dark:text-zinc-600 uppercase tracking-widest mt-0.5">Total OI</p></div>
@@ -452,6 +463,9 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
 // VUE 2 : TRADER EXPLORER
 // ============================================================================
 function TraderExplorerView({ address, wsData }: { address: string, wsData: any }) {
+    const { theme } = useTheme();
+    const isDark = theme === 'dark';
+
     const [rawTrades, setRawTrades] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<"open" | "pending" | "closed" | "cancelled">("open");
@@ -477,8 +491,10 @@ function TraderExplorerView({ address, wsData }: { address: string, wsData: any 
         fetchTraderData();
     }, [address]);
 
-    const { open, pending, closed, cancelled } = useMemo(() => {
+    const { open, pending, closed, cancelled, totalUnrealizedPnl } = useMemo(() => {
         const o: any[] = []; const p: any[] = []; const c: any[] = []; const ca: any[] = [];
+        let totalUnrealized = 0;
+
         const getAssetWsPrice = (assetId: number) => {
             const categories = getAssetsByCategory(wsData);
             const match = Object.values(categories).flat().find(a => a.id === assetId);
@@ -494,6 +510,7 @@ function TraderExplorerView({ address, wsData }: { address: string, wsData: any 
             let pnl = 0;
             if (t.state === 1 && wsPrice > 0) {
                 pnl = size * (wsPrice - entryP) * (t.isLong ? 1 : -1);
+                totalUnrealized += pnl; // Somme des PnL ouverts
             } else if (t.state === 2) {
                 const closeSize = (t.closedLotSize || t.lotSize) * assetMultiplier;
                 pnl = closeSize * (formatE6(t.closePrice) - entryP) * (t.isLong ? 1 : -1);
@@ -508,7 +525,7 @@ function TraderExplorerView({ address, wsData }: { address: string, wsData: any 
         });
 
         const sortByDate = (arr: any[]) => arr.sort((a, b) => b.openTimestamp - a.openTimestamp);
-        return { open: sortByDate(o), pending: sortByDate(p), closed: sortByDate(c), cancelled: sortByDate(ca) };
+        return { open: sortByDate(o), pending: sortByDate(p), closed: sortByDate(c), cancelled: sortByDate(ca), totalUnrealizedPnl: totalUnrealized };
     }, [rawTrades, wsData]);
 
     const currentData = activeTab === "open" ? open : activeTab === "pending" ? pending : activeTab === "closed" ? closed : cancelled;
@@ -525,6 +542,12 @@ function TraderExplorerView({ address, wsData }: { address: string, wsData: any 
                     </div>
                 </div>
                 <div className="flex gap-8">
+                    <div>
+                        <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Unrealized PnL</p>
+                        <p className={`text-xl font-mono font-bold ${totalUnrealizedPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
+                            {totalUnrealizedPnl >= 0 ? '+' : ''}{formatUSDExact(totalUnrealizedPnl)}
+                        </p>
+                    </div>
                     <div>
                         <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Total Realized PnL</p>
                         <p className={`text-xl font-mono font-bold ${traderMetrics.pnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
@@ -574,7 +597,10 @@ function TraderExplorerView({ address, wsData }: { address: string, wsData: any 
                         <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/50">
                             {currentData.map(trade => (
                                 <tr key={trade.id} className="hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors">
-                                    <td className="px-6 py-3 font-semibold text-[11px] text-slate-800 dark:text-zinc-200">{getDisplaySymbol(trade.assetId)}</td>
+                                    <td className="px-6 py-3 font-semibold text-[11px] text-slate-800 dark:text-zinc-200 flex items-center gap-2">
+                                        <AssetIcon assetId={trade.assetId} isDark={isDark} size="14px" />
+                                        {getDisplaySymbol(trade.assetId)}
+                                    </td>
                                     <td className="px-6 py-3 text-[11px] font-mono text-slate-500 dark:text-zinc-500">{format(new Date(trade.openTimestamp * 1000), "MMM dd, HH:mm")}</td>
                                     <td className="px-6 py-3 text-[11px] font-bold"><span className={trade.isLong ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}>{trade.isLong ? 'LONG' : 'SHORT'}</span> <span className="text-slate-400 dark:text-zinc-600">x{trade.leverage}</span></td>
                                     <td className="px-6 py-3 text-[11px] font-mono text-slate-700 dark:text-zinc-300">{trade.displaySize}</td>
@@ -599,6 +625,9 @@ function TraderExplorerView({ address, wsData }: { address: string, wsData: any 
 // VUE 3 : ASSET EXPLORER (Sans Background coloré)
 // ============================================================================
 function AssetExplorerView({ assetId, wsData }: { assetId: number, wsData: any }) {
+    const { theme } = useTheme();
+    const isDark = theme === 'dark';
+
     const [stats, setStats] = useState<any>(null);
     const [exposure, setExposure] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -667,7 +696,9 @@ function AssetExplorerView({ assetId, wsData }: { assetId: number, wsData: any }
             {/* EN-TETE ACTIF */}
             <div className="p-8 border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50 dark:bg-zinc-950/50 flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl flex items-center justify-center text-slate-600 dark:text-zinc-300 font-bold text-xl"><Coins size={24}/></div>
+                    <div className="w-14 h-14 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl flex items-center justify-center text-slate-600 dark:text-zinc-300 font-bold text-xl">
+                        <AssetIcon assetId={assetId} isDark={isDark} size="28px" />
+                    </div>
                     <div>
                         <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{symbol} Market Data</h2>
                         <p className="text-sm text-slate-500 dark:text-zinc-500 font-mono mt-1">Real-time exposure and global PnL analysis.</p>
