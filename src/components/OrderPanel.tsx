@@ -20,7 +20,7 @@ import { useMarketStatus } from "@/hooks/useMarketStatus";
 // Clé = assetId, Valeur = quantité d'actif pour 1 lot au niveau de l'affichage
 const ASSET_LOT_SIZES: Record<number, number> = {
     0: 0.01,    // btc_usdt
-    1: 0.1,     // eth_usdt
+    1: 0.01,     // eth_usdt
     2: 1,       // link_usdt
     3: 1000,    // doge_usdt
     5: 1,       // avax_usdt

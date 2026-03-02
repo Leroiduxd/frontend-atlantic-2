@@ -6,7 +6,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ArrowUp, ArrowDown } from "lucide-react";
 import { useWebSocket, getAssetsByCategory } from "@/hooks/useWebSocket";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
@@ -47,6 +47,41 @@ const NETWORKS = [
 
 const CATEGORIES = ["all", "crypto", "forex", "commodities", "stocks", "indices"];
 
+// Table des Lot Sizes
+const ASSET_LOT_SIZES: Record<number, number> = {
+    0: 0.01,    // btc_usdt
+    1: 0.01,    // eth_usdt
+    2: 1,       // link_usdt
+    3: 1000,    // doge_usdt
+    5: 1,       // avax_usdt
+    10: 1,      // sol_usdt
+    14: 100,    // xrp_usdt
+    15: 1000,   // trx_usdt
+    16: 100,    // ada_usdt
+    90: 10,     // sui_usdt
+    5500: 0.01, // xau_usd
+    5501: 0.1,  // xag_usd
+};
+
+// Interface pour les données retournées par l'API stats/open-trades
+interface OpenTradeStat {
+    assetId: number;
+    isLong: number;
+    openCount: number;
+    avgLeverage: number;
+}
+
+// Fonction utilitaire pour formater en $ compact (ex: $1.2M, $45K)
+const formatCompactUSD = (val: number) => {
+    if (val === 0) return "$0";
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      notation: "compact",
+      maximumFractionDigits: 2
+    }).format(val);
+};
+
 export const ChartControls = (props: ChartControlsProps) => {
   const { 
     selectedAsset, 
@@ -69,11 +104,35 @@ export const ChartControls = (props: ChartControlsProps) => {
   // État Volatile
   const [searchQuery, setSearchQuery] = useState("");
 
+  // État pour stocker les stats d'exposition
+  const [openTradesStats, setOpenTradesStats] = useState<OpenTradeStat[]>([]);
+
   useEffect(() => {
     if (!isPopoverOpen) {
         setSearchQuery("");
     }
   }, [isPopoverOpen]);
+
+  // Fetch des stats d'exposition au montage du composant
+  useEffect(() => {
+    const fetchOpenTradesStats = async () => {
+        try {
+            const response = await fetch('https://api.brokex.trade/stats/open-trades');
+            const data = await response.json();
+            if (data.success && Array.isArray(data.data)) {
+                setOpenTradesStats(data.data);
+            }
+        } catch (error) {
+            console.error("Failed to fetch open trades stats:", error);
+        }
+    };
+
+    fetchOpenTradesStats();
+    
+    // Optionnel: Mettre à jour périodiquement
+    const intervalId = setInterval(fetchOpenTradesStats, 30000); // toutes les 30s
+    return () => clearInterval(intervalId);
+  }, []);
 
   const handleAssetChange = (asset: any) => {
     const normalizedId = Number(asset.id);
@@ -115,6 +174,24 @@ export const ChartControls = (props: ChartControlsProps) => {
     return allAssets;
   }, [activeCategory, assetsByCat, searchQuery]);
 
+  // Fonction pour calculer l'Open Interest en USD
+  const getOpenInterestInUSD = (assetId: number, isLong: boolean, assetCurrentPriceStr: string) => {
+      const stat = openTradesStats.find(s => s.assetId === assetId && s.isLong === (isLong ? 1 : 0));
+      if (!stat) return null;
+
+      const lotSize = ASSET_LOT_SIZES[assetId] !== undefined ? ASSET_LOT_SIZES[assetId] : 1;
+      const assetPrice = parseFloat(assetCurrentPriceStr || '0');
+      
+      // Calcul: (Nombre d'ordres * Taille d'un lot) * Prix actuel de l'actif
+      const exposureAsset = stat.openCount * lotSize;
+      const exposureUSD = exposureAsset * assetPrice;
+      
+      const formattedUSD = formatCompactUSD(exposureUSD);
+      const formattedLeverage = stat.avgLeverage.toFixed(1);
+
+      return `${formattedUSD} (${formattedLeverage}x)`;
+  };
+
   const priceChange24h = parseFloat(selectedAsset.change24h || '0');
   const isPositive = priceChange24h >= 0;
 
@@ -141,7 +218,7 @@ export const ChartControls = (props: ChartControlsProps) => {
                 sideOffset={0}
             >
               
-              {/* HEADER : Padding réduit (p-2) */}
+              {/* HEADER */}
               <div className="flex items-center justify-between p-2 border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-black">
                   
                   {/* Liste des Catégories */}
@@ -150,7 +227,6 @@ export const ChartControls = (props: ChartControlsProps) => {
                           <button
                             key={cat}
                             onClick={() => setActiveCategory(cat)}
-                            // Style mis à jour : Gris au lieu de Noir/Blanc pour l'actif
                             className={`px-3 py-1 text-[10px] font-bold rounded-md capitalize transition-colors
                                 ${activeCategory === cat 
                                     ? "bg-slate-100 text-slate-900 dark:bg-zinc-800 dark:text-white" 
@@ -163,40 +239,42 @@ export const ChartControls = (props: ChartControlsProps) => {
                       ))}
                   </div>
 
-                  {/* Barre de Recherche : h-7, text-[10px], pas de loupe */}
+                  {/* Barre de Recherche */}
                   <div className="w-40 flex-shrink-0 ml-2">
                       <Input 
                         placeholder="Search..." 
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        // Style mis à jour : Fond identique au bouton actif
                         className="h-7 px-3 text-[10px] bg-slate-100 dark:bg-zinc-800 border-none focus-visible:ring-0 placeholder:text-slate-400 dark:placeholder:text-zinc-600 dark:text-white rounded-md"
                       />
                   </div>
               </div>
                 
               {/* En-têtes de colonnes */}
-              <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr] px-4 py-2 border-b border-gray-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/30 text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
+              <div className="grid grid-cols-[1.5fr_1fr_1fr_1.5fr_1.5fr] px-4 py-2 border-b border-gray-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/30 text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-wider">
                   <div>Assets</div>
                   <div className="text-right">Price</div>
                   <div className="text-right">24h Chg</div>
-                  <div className="text-right">24h Vol.</div>
-                  <div className="text-right">OI (Long)</div>
-                  <div className="text-right">OI (Short)</div>
+                  <div className="text-right text-blue-500">OI (Long)</div>
+                  <div className="text-right text-red-500">OI (Short)</div>
               </div>
 
-              {/* ScrollArea avec Scrollbar Invisible */}
+              {/* ScrollArea */}
               <ScrollArea className="flex-1 bg-white dark:bg-black [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 <div className="flex flex-col">
                   {filteredAssets.length > 0 ? (
                     filteredAssets.map((asset) => {
                         const isOpen = true; 
+                        
+                        // Récupération des données Open Interest converties en USD
+                        const longOIStr = getOpenInterestInUSD(asset.id, true, asset.currentPrice || '0');
+                        const shortOIStr = getOpenInterestInUSD(asset.id, false, asset.currentPrice || '0');
 
                         return (
                           <Button
                             key={asset.id}
                             variant="ghost"
-                            className={`w-full grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr_1fr] h-auto py-3 px-4 rounded-none border-b border-gray-50 dark:border-zinc-900/50 transition-colors 
+                            className={`w-full grid grid-cols-[1.5fr_1fr_1fr_1.5fr_1.5fr] h-auto py-3 px-4 rounded-none border-b border-gray-50 dark:border-zinc-900/50 transition-colors 
                                 ${selectedAsset.id === asset.id 
                                     ? "bg-slate-50 dark:bg-zinc-900/80" 
                                     : "hover:bg-slate-50 dark:hover:bg-zinc-900"
@@ -205,7 +283,6 @@ export const ChartControls = (props: ChartControlsProps) => {
                           >
                             {/* Colonne 1: Logo + Symbol + Status */}
                             <div className="flex items-center gap-3 text-left">
-                                {/* Logo plus grand (w-9 h-9) */}
                                 <div className="w-9 h-9 rounded-md border border-slate-200 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 flex-shrink-0 flex items-center justify-center text-[10px] text-slate-300">
                                 </div>
                                 
@@ -226,9 +303,29 @@ export const ChartControls = (props: ChartControlsProps) => {
                                 {parseFloat(asset.change24h || '0') >= 0 ? '+' : ''}{parseFloat(asset.change24h || '0').toFixed(2)}%
                             </div>
 
-                            <div className="text-right text-xs text-slate-500 dark:text-zinc-500 font-mono self-center">-</div>
-                            <div className="text-right text-xs text-slate-500 dark:text-zinc-500 font-mono self-center">-</div>
-                            <div className="text-right text-xs text-slate-500 dark:text-zinc-500 font-mono self-center">-</div>
+                            {/* Colonne OI (Long) */}
+                            <div className="text-right text-xs text-blue-600 dark:text-blue-400 font-mono self-center font-medium flex items-center justify-end gap-1">
+                                {longOIStr ? (
+                                    <>
+                                        <ArrowUp size={12} className="stroke-[3]" />
+                                        {longOIStr}
+                                    </>
+                                ) : (
+                                    "-"
+                                )}
+                            </div>
+                            
+                            {/* Colonne OI (Short) */}
+                            <div className="text-right text-xs text-red-600 dark:text-red-500 font-mono self-center font-medium flex items-center justify-end gap-1">
+                                {shortOIStr ? (
+                                    <>
+                                        <ArrowDown size={12} className="stroke-[3]" />
+                                        {shortOIStr}
+                                    </>
+                                ) : (
+                                    "-"
+                                )}
+                            </div>
 
                           </Button>
                         );

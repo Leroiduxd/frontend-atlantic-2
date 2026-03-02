@@ -1,14 +1,15 @@
 "use client";
 
-import { TrendingUp, Wallet, Droplet, Sun, Moon, Vault } from "lucide-react";
+import { TrendingUp, Wallet, Droplet, Sun, Moon, Vault, Compass } from "lucide-react";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useEffect, useState } from 'react';
 import { useTheme } from "next-themes"; 
 
 interface SidebarProps {
   setIsFaucetOpen: (open: boolean) => void;
-  currentView: 'trading' | 'vault';       
-  onNavigate: (view: 'trading' | 'vault') => void;
+  // Ajout de 'scan' dans les types autorisés
+  currentView: 'trading' | 'vault' | 'scan';       
+  onNavigate: (view: 'trading' | 'vault' | 'scan') => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen, currentView, onNavigate }) => {
@@ -22,10 +23,8 @@ const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen, currentView, onNavig
     const baseStyle = "p-2 rounded-xl transition-all duration-200 cursor-pointer";
     
     if (currentView === viewName) {
-      // Actif : Fond blanc semi-transparent, icône blanche éclatante
       return `${baseStyle} text-white bg-white/10 shadow-sm`; 
     }
-    // Inactif : Gris clair, devient blanc au survol avec léger fond
     return `${baseStyle} text-slate-400 hover:text-white hover:bg-white/5`; 
   };
 
@@ -35,14 +34,8 @@ const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen, currentView, onNavig
     <aside className={`
       fixed left-0 top-0 z-20 w-[60px] h-screen flex-shrink-0 flex flex-col items-center py-4 shadow-2xl
       border-r
-      
-      /* --- GESTION DES COULEURS DE FOND --- */
-      /* Mode Clair : Bleu Marine (Slate-900) */
       bg-slate-900 border-slate-800
-      
-      /* Mode Sombre : Noir Total (bg-black) */
       dark:bg-black dark:border-zinc-800
-      
       transition-colors duration-300
     `}>
       
@@ -69,6 +62,15 @@ const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen, currentView, onNavig
           title="Vault"
         >
           <Vault className="w-6 h-6" />
+        </button>
+
+        {/* BOUTON SCAN / EXPLORER (NOUVEAU) */}
+        <button
+          onClick={() => onNavigate('scan')}
+          className={getIconStyle('scan')}
+          title="Explorer"
+        >
+          <Compass className="w-6 h-6" />
         </button>
         
         {/* BOUTON FAUCET */}
@@ -109,9 +111,6 @@ const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen, currentView, onNavig
                       <Wallet className="w-6 h-6" />
                     </button>
                   ) : (
-                    // Bouton connecté : 
-                    // Mode Clair : Bleu (bg-blue-600)
-                    // Mode Sombre : Gris (dark:bg-zinc-800)
                     <button 
                       onClick={openAccountModal} 
                       className="p-2 rounded-xl text-white transition-colors 

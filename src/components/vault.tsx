@@ -22,6 +22,9 @@ import { useBalance } from 'wagmi';
 import { formatUnits, parseUnits, isAddress } from 'viem';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 
+// 👇 1. IMPORT DE LA BOTTOM BAR
+import { BottomBar } from "@/components/BottomBar"; 
+
 // --- 1. CONFIGURATION ---
 
 const VAULT_ADDRESS = "0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0";
@@ -117,6 +120,10 @@ export default function VaultInterface() {
   const [notification, setNotification] = useState({ show: false, title: '', body: '' });
   const [selectedPositions, setSelectedPositions] = useState<number[]>([]);
   const [isDarkMode, setIsDarkMode] = useState(false);
+
+  // 👇 2. STATES POUR LA BOTTOM BAR
+  const [currentAssetId, setCurrentAssetId] = useState<number>(0);
+  const handleAssetSelect = (asset: any) => setCurrentAssetId(asset.id);
 
   const [userPositions, setUserPositions] = useState<Position[]>([]);
   const [withdrawBuckets, setWithdrawBuckets] = useState<WithdrawBucket[]>([]);
@@ -237,7 +244,7 @@ export default function VaultInterface() {
   useEffect(() => { 
     refetchPending(); 
     refetchEquity(); 
-    refetchAllowance(); // Re-fetch l'allowance après toute transaction confirmée
+    refetchAllowance(); 
   }, [isConfirmed, refetchPending, refetchEquity, refetchAllowance]);
 
   useEffect(() => {
@@ -251,7 +258,6 @@ export default function VaultInterface() {
   useEffect(() => {
     if (isConfirmed) { 
         showNotif("Success", "Transaction confirmed."); 
-        // Ne vide le champ deposit que si ce n'était pas juste un approve
         if (!needsApproval && depositInput) {
             setDepositInput(''); 
         }
@@ -299,7 +305,8 @@ export default function VaultInterface() {
   if (!isMounted) return null;
 
   return (
-    <div className="bg-slate-50 dark:bg-black text-slate-800 dark:text-zinc-200 min-h-screen font-mono p-8 transition-colors duration-300">
+    // 👇 Ajout de pb-16 pour ne pas masquer de contenu
+    <div className="bg-slate-50 dark:bg-black text-slate-800 dark:text-zinc-200 min-h-screen font-mono p-8 pb-16 transition-colors duration-300 relative">
       <main className="max-w-[1600px] mx-auto">
         <div className="grid grid-cols-12 gap-8 items-start">
           
@@ -451,6 +458,14 @@ export default function VaultInterface() {
         </div>
       </main>
       <Notification show={notification.show} title={notification.title} body={notification.body} onClose={() => setNotification({ ...notification, show: false })} />
+      
+      {/* 👇 3. L'APPEL DE LA BOTTOM BAR EN BAS */}
+      <div className="fixed bottom-0 left-[60px] right-0 z-50">
+        <BottomBar 
+          onAssetSelect={handleAssetSelect} 
+          currentAssetId={currentAssetId} 
+        />
+      </div>
     </div>
   );
 }
