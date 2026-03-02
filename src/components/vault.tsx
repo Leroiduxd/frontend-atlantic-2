@@ -38,6 +38,7 @@ const ERC20_ABI = [
 const VAULT_ABI = [
   { "inputs": [], "name": "currentEpoch", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "name": "lpTokenPrice", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "name": "epochEquitySnapshot18", "outputs": [{ "internalType": "int256", "name": "", "type": "int256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [], "name": "getLpTotalCapital6", "outputs": [{ "internalType": "uint256", "name": "total6", "type": "uint256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [], "name": "lpFreeCapital", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
   { "inputs": [], "name": "lpLockedCapital", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
@@ -71,7 +72,66 @@ interface WithdrawBucket {
   status: 'Processing' | 'Filling' | 'Ready' | 'Completed';
 }
 
-// --- 3. CUSTOM INPUT COMPONENT ---
+// --- 3. CUSTOM HOOK POUR LE GRAPHIQUE ---
+function useVaultHistoricalData(currentEpoch: number, publicClient: any, isConfirmed: boolean) {
+  const [historicalData, setHistoricalData] = useState<{ labels: string[], prices: number[], supplies: number[] }>({ labels: [], prices: [], supplies: [] });
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!publicClient || currentEpoch === undefined || currentEpoch === null) return;
+      try {
+        const labels: string[] = [];
+        const prices: number[] = [];
+        const supplies: number[] = [];
+
+        // On démarre à 1 (ignore epoch 0) et on s'arrête avant currentEpoch (< au lieu de <=)
+        for (let i = 1; i < currentEpoch; i++) {
+          const epochBig = BigInt(i);
+          
+          // Récupère Prix et Equity en parallèle pour gagner du temps
+          const [priceData, equityData] = await Promise.all([
+            publicClient.readContract({
+              address: VAULT_ADDRESS,
+              abi: VAULT_ABI,
+              functionName: 'lpTokenPrice',
+              args: [epochBig]
+            }),
+            publicClient.readContract({
+              address: VAULT_ADDRESS,
+              abi: VAULT_ABI,
+              functionName: 'epochEquitySnapshot18',
+              args: [epochBig]
+            })
+          ]);
+
+          const priceFloat = parseFloat(formatUnits(priceData as bigint, 18));
+          const equityBigInt = BigInt(equityData as bigint);
+          
+          let supplyFloat = 0;
+          if (priceData > 0n && equityBigInt > 0n) {
+            // Formule : TotalShares = (Equity * 1e18) / Price
+            const supplyBigInt = (equityBigInt * 1000000000000000000n) / (priceData as bigint);
+            supplyFloat = parseFloat(formatUnits(supplyBigInt, 18));
+          }
+
+          labels.push(`Epoch ${i}`);
+          prices.push(priceFloat);
+          supplies.push(supplyFloat);
+        }
+        
+        setHistoricalData({ labels, prices, supplies });
+      } catch (err) {
+        console.error("Erreur lors de la récupération des données historiques:", err);
+      }
+    };
+
+    fetchData();
+  }, [currentEpoch, publicClient, isConfirmed]);
+
+  return historicalData;
+}
+
+// --- 4. CUSTOM INPUT COMPONENT ---
 const StepController = ({ value, onChange, placeholder, symbol, step = 10, min = 0, disabled = false, onMax }: any) => {
   const handleStep = (delta: number) => {
     const current = parseFloat(value) || 0;
@@ -87,7 +147,6 @@ const StepController = ({ value, onChange, placeholder, symbol, step = 10, min =
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
         placeholder={placeholder}
-        // Ces classes masquent les flèches du navigateur
         className="block w-full bg-transparent text-slate-900 dark:text-white pl-4 pr-24 py-2 text-sm font-mono focus:outline-none [&::-webkit-inner-spin-button]:hidden [&::-webkit-outer-spin-button]:hidden [-moz-appearance:textfield]"
       />
       <div className="absolute right-8 flex items-center pr-2">
@@ -175,6 +234,9 @@ export default function VaultInterface() {
   // LOGIQUE APPROVE
   const depositAmountBigInt = depositInput && !isNaN(parseFloat(depositInput)) ? parseUnits(depositInput, 6) : 0n;
   const needsApproval = depositAmountBigInt > 0n && allowance < depositAmountBigInt;
+
+  // --- HOOK DU GRAPHIQUE ---
+  const { labels: chartLabels, prices: chartPrices, supplies: chartSupplies } = useVaultHistoricalData(currentEpoch, publicClient, isConfirmed);
 
   // --- COMPLEX FETCHING LOGIC ---
   const fetchUserData = useCallback(async () => {
@@ -299,8 +361,74 @@ export default function VaultInterface() {
   const handleClaim = (epochId: number) => { try { writeContract({ address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'claimWithdraw', args: [BigInt(epochId)], }); showNotif("Pending", "Sign claim transaction."); } catch (e) { console.error(e); } };
   const togglePositionSelection = (id: number) => { setSelectedPositions(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]); };
 
-  const chartData = { labels: Array.from({length: 30}, (_, i) => i), datasets: [{ data: Array.from({length: 30}, () => Math.random() * 0.1 + 1), borderColor: isDarkMode ? '#f4f4f5' : '#1e293b', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.4 }] };
-  const chartOptions: any = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } };
+  // --- GRAPH CONFIGURATION ---
+  const chartData = { 
+    labels: chartLabels.length > 0 ? chartLabels : ['Waiting for more epochs...'], 
+    datasets: [
+      { 
+        label: 'LP Token Price (USDC)',
+        data: chartPrices, 
+        borderColor: isDarkMode ? '#f4f4f5' : '#1e293b', 
+        backgroundColor: 'transparent', 
+        borderWidth: 2, 
+        pointRadius: 4, 
+        tension: 0.4,
+        yAxisID: 'y'
+      },
+      {
+        label: 'Total Supply (Shares)',
+        data: chartSupplies,
+        borderColor: '#3b82f6', // Bleu pour contraster
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: [5, 5], // Ligne pointillée
+        pointRadius: 0,
+        tension: 0.4,
+        yAxisID: 'y1'
+      }
+    ] 
+  };
+
+  const chartOptions: any = { 
+    responsive: true, 
+    maintainAspectRatio: false, 
+    interaction: {
+      mode: 'index',
+      intersect: false,
+    },
+    plugins: { 
+      legend: { 
+        display: true,
+        labels: { color: isDarkMode ? '#a1a1aa' : '#64748b' }
+      },
+      tooltip: {
+        enabled: true
+      }
+    }, 
+    scales: { 
+      x: { 
+        display: true,
+        grid: { display: false, drawBorder: false },
+        ticks: { color: isDarkMode ? '#71717a' : '#94a3b8' }
+      }, 
+      y: { 
+        type: 'linear',
+        display: true,
+        position: 'left',
+        grid: { color: isDarkMode ? '#27272a' : '#f1f5f9' },
+        ticks: { color: isDarkMode ? '#71717a' : '#94a3b8' },
+        title: { display: true, text: 'Price (USDC)', color: isDarkMode ? '#a1a1aa' : '#64748b' }
+      },
+      y1: {
+        type: 'linear',
+        display: true,
+        position: 'right',
+        grid: { drawOnChartArea: false }, // Ne pas dessiner les lignes de grille par-dessus le premier axe
+        ticks: { color: '#3b82f6' },
+        title: { display: true, text: 'Total Supply', color: '#3b82f6' }
+      }
+    } 
+  };
 
   if (!isMounted) return null;
 
@@ -374,7 +502,12 @@ export default function VaultInterface() {
               <StatCard title="Estimated Equity" value={`${equityValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} $`} subtext="Active Shares + Pending" extraClass="text-slate-900 dark:text-white" />
             </div>
 
-            <div className="card-shadow bg-white dark:bg-zinc-950 rounded-lg p-6 border border-slate-200 dark:border-zinc-900"><div className="h-[350px] w-full"><Line data={chartData} options={chartOptions} /></div></div>
+            {/* GRAPHIQUE MIS A JOUR */}
+            <div className="card-shadow bg-white dark:bg-zinc-950 rounded-lg p-6 border border-slate-200 dark:border-zinc-900">
+              <div className="h-[350px] w-full">
+                <Line data={chartData} options={chartOptions} />
+              </div>
+            </div>
 
             <div>
               <div className="flex space-x-6 border-b border-slate-200 dark:border-zinc-800 mb-6">
