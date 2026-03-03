@@ -12,7 +12,7 @@ import { AssetIcon } from "@/hooks/useAssetIcon";
 
 // --- CONSTANTES ---
 const ASSET_LOT_SIZES: Record<number, number> = {
-  0: 0.01, 1: 0.1, 2: 1, 3: 1000, 5: 1, 10: 1, 14: 100, 15: 1000, 16: 100, 90: 10, 5500: 0.01, 5501: 0.1,
+  0: 0.01, 1: 0.01, 2: 1, 3: 1000, 5: 1, 10: 1, 14: 100, 15: 1000, 16: 100, 90: 10, 5500: 0.01, 5501: 0.1,
 };
 
 const PAIR_MAP: { [key: number]: string } = {
