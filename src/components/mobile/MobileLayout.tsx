@@ -3,10 +3,9 @@
 import { useState, useMemo } from "react";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useChartData } from "@/hooks/useChartData";
-import { CandlestickChart, Briefcase, Landmark, Wallet } from "lucide-react"; 
-import { Sheet, SheetContent } from "@/components/ui/sheet"; 
+import { CandlestickChart, Briefcase, Landmark, Wallet, X } from "lucide-react"; 
 
-// Imports de tes composants mobiles (chemins relatifs)
+// Tes imports
 import { ChartControlsMobile, Asset } from "./ChartControlsMobile";
 import { LightweightChartMobile } from "./LightweightChartMobile";
 import { WalletView } from "./WalletView"; 
@@ -15,16 +14,12 @@ import { PositionsSectionMobile } from "./PositionsSectionMobile";
 import { VaultMobile } from "./VaultMobile";
 
 export default function MobileLayout() {
-  // --- 1. ÉTATS DE NAVIGATION & SÉLECTION ---
   const [activeTab, setActiveTab] = useState("trade");
-  
-  // États pour le Panel d'Ordre
-  const [isOrderSheetOpen, setIsOrderSheetOpen] = useState(false);
-  const [orderSide, setOrderSide] = useState<"long" | "short">("long");
+  const [isChartOpen, setIsChartOpen] = useState(false);
   const [paymasterEnabled, setPaymasterEnabled] = useState(true);
   
   const [selectedAsset, setSelectedAsset] = useState<Asset>({
-    id: 1, 
+    id: 0, 
     name: "Bitcoin",
     symbol: "BTC/USD",
     pair: "BTC_USD",
@@ -34,7 +29,6 @@ export default function MobileLayout() {
 
   const [timeframe, setTimeframe] = useState("300");
 
-  // --- 2. DONNÉES (WS & API) ---
   const { data: wsData } = useWebSocket();
 
   const currentAssetData = useMemo(() => {
@@ -54,103 +48,73 @@ export default function MobileLayout() {
     : parseFloat(selectedAsset.currentPrice || "0");
 
   const { data: chartData, loading: isLoading } = useChartData(
-    activeTab === "trade" ? selectedAsset.id : -1, 
+    isChartOpen ? selectedAsset.id : -1,
     timeframe
   );
 
-  // HANDLER pour ouvrir le panel
-  const openOrderPanel = (side: "long" | "short") => {
-    setOrderSide(side);
-    setIsOrderSheetOpen(true);
-  };
+  // Le graphique devient un simple bloc div que l'on passera au OrderPanel
+  const chartComponent = isChartOpen ? (
+    <div className="w-full h-[350px] flex-shrink-0 mb-4 border border-slate-200 dark:border-zinc-800 rounded-[4px] bg-white dark:bg-[#111] overflow-hidden flex flex-col transition-colors">
+        <div className="flex items-center justify-between p-2 px-3 border-b border-slate-100 dark:border-zinc-900 transition-colors">
+            <span className="font-bold text-[11px] text-slate-500 dark:text-zinc-400">{selectedAsset.symbol} Chart</span>
+            <button onClick={() => setIsChartOpen(false)} className="p-1 rounded-sm hover:bg-slate-200 dark:hover:bg-zinc-800 transition-colors text-slate-400 dark:text-zinc-500">
+                <X className="w-3 h-3" />
+            </button>
+        </div>
+        <div className="flex-1 relative">
+            <LightweightChartMobile 
+                data={chartData || []} 
+                symbol={selectedAsset.symbol}
+            />
+            {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm z-10 transition-colors">
+                    <span className="text-[10px] text-blue-500 animate-pulse font-bold">UPDATING...</span>
+                </div>
+            )}
+        </div>
+    </div>
+  ) : null;
 
   return (
-    <div className="flex flex-col w-full h-[100dvh] bg-white dark:bg-black text-slate-900 dark:text-white overflow-hidden">
+    <div className="flex flex-col w-full h-[100dvh] bg-white dark:bg-black text-slate-900 dark:text-white overflow-hidden transition-colors">
       
-      {/* ============================================================
-          CONTENU PRINCIPAL
-         ============================================================ */}
       <div className="flex-1 flex flex-col min-h-0 relative">
         
-        {/* VUE: TRADE */}
         {activeTab === "trade" && (
-          <>
-            {/* 1. Header (Contrôles) */}
-            <div className="flex-none z-20 shadow-sm border-b border-gray-100 dark:border-zinc-800"> 
-              <ChartControlsMobile
+          <div className="flex flex-col h-full">
+            {/* Header avec sélecteur d'actif */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-zinc-900 transition-colors">
+               <ChartControlsMobile
                 selectedAsset={selectedAsset}
                 onAssetChange={setSelectedAsset}
-                selectedTimeframe={timeframe}
-                onTimeframeChange={setTimeframe}
                 currentPrice={livePrice}
               />
             </div>
 
-            {/* 2. Graphique */}
-            <div className="flex-1 relative w-full bg-white dark:bg-black">
-              <LightweightChartMobile 
-                data={chartData || []} 
-                symbol={selectedAsset.symbol}
-              />
-              
-              {isLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-black/80 z-10 pointer-events-none">
-                  <span className="text-xs text-slate-500 animate-pulse font-medium">Loading chart...</span>
-                </div>
-              )}
+            {/* Panneau d'ordre */}
+            <div className="flex-1 overflow-y-auto">
+                <OrderPanelMobile 
+                    selectedAsset={selectedAsset}
+                    currentPrice={livePrice}
+                    paymasterEnabled={paymasterEnabled}
+                    onTogglePaymaster={() => setPaymasterEnabled(!paymasterEnabled)}
+                    isChartOpen={isChartOpen}
+                    onToggleChart={() => setIsChartOpen(!isChartOpen)}
+                    chartComponent={chartComponent}
+                    onGoToWallet={() => setActiveTab("wallet")} 
+                />
             </div>
-          </>
-        )}
-
-        {/* VUE: POSITIONS */}
-        {activeTab === "positions" && (
-          <div className="flex-1 h-full overflow-hidden">
-            <PositionsSectionMobile />
           </div>
         )}
 
-        {/* VUE: VAULT */}
-        {activeTab === "vault" && (
-          <div className="flex-1 h-full overflow-hidden">
-            <VaultMobile />
-          </div>
-        )}
-
-        {/* VUE: WALLET */}
-        {activeTab === "wallet" && (
-          <div className="flex-1 h-full overflow-hidden">
-            <WalletView />
-          </div>
-        )}
+        {/* AUTRES VUES */}
+        {activeTab === "positions" && <div className="flex-1 h-full"><PositionsSectionMobile /></div>}
+        {activeTab === "vault" && <div className="flex-1 h-full"><VaultMobile /></div>}
+        {activeTab === "wallet" && <div className="flex-1 h-full"><WalletView /></div>}
       </div>
 
-      {/* ============================================================
-          ZONE INFÉRIEURE FIXE (BOUTONS D'ORDRE + BARRE NAV)
-         ============================================================ */}
-      <div className="flex-none bg-white dark:bg-black border-t border-gray-200 dark:border-zinc-800 pb-safe"> 
-        
-        {/* A. BOUTONS LONG / SHORT (Uniquement visible sur l'onglet Trade) */}
-        {activeTab === "trade" && (
-          <div className="px-4 py-3 pb-2 flex gap-3">
-            {/* BOUTON LONG (BLEU) */}
-            <button 
-              onClick={() => openOrderPanel("long")} 
-              className="flex-1 h-11 bg-blue-600 hover:bg-blue-700 active:bg-blue-700 text-white rounded-lg font-bold text-base shadow-sm transition-transform active:scale-[0.98]"
-            >
-              Long
-            </button>
-            
-            {/* BOUTON SHORT (ROUGE) */}
-            <button 
-              onClick={() => openOrderPanel("short")} 
-              className="flex-1 h-11 bg-red-600 hover:bg-red-700 active:bg-red-700 text-white rounded-lg font-bold text-base shadow-sm transition-transform active:scale-[0.98]"
-            >
-              Short
-            </button>
-          </div>
-        )}
-
-        {/* B. BARRE DE NAVIGATION */}
+      {/* ZONE INFÉRIEURE FIXE : NAVIGATION */}
+      <div className="flex-none bg-white dark:bg-black border-t border-slate-200 dark:border-zinc-900 pb-safe transition-colors"> 
         <div className="grid grid-cols-4 h-16 items-center">
           <NavButton active={activeTab === "trade"} onClick={() => setActiveTab("trade")} icon={<CandlestickChart className="w-5 h-5" />} label="Trade" />
           <NavButton active={activeTab === "positions"} onClick={() => setActiveTab("positions")} icon={<Briefcase className="w-5 h-5" />} label="Positions" />
@@ -158,38 +122,14 @@ export default function MobileLayout() {
           <NavButton active={activeTab === "wallet"} onClick={() => setActiveTab("wallet")} icon={<Wallet className="w-5 h-5" />} label="Wallet" />
         </div>
       </div>
-
-      {/* ============================================================
-          TIROIR DE TRADING (SHEET)
-         ============================================================ */}
-      <Sheet open={isOrderSheetOpen} onOpenChange={setIsOrderSheetOpen}>
-        <SheetContent side="bottom" className="h-[85dvh] w-full p-0 rounded-t-2xl border-t border-zinc-800 bg-white dark:bg-black">
-            <OrderPanelMobile 
-                selectedAsset={selectedAsset}
-                currentPrice={livePrice}
-                side={orderSide}
-                paymasterEnabled={paymasterEnabled}
-                onTogglePaymaster={() => setPaymasterEnabled(!paymasterEnabled)}
-                onClose={() => setIsOrderSheetOpen(false)}
-            />
-        </SheetContent>
-      </Sheet>
       
     </div>
   );
 }
 
-// --- Helper Button ---
 function NavButton({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
   return (
-    <button 
-      onClick={onClick}
-      className={`flex flex-col items-center justify-center gap-1 h-full transition-colors
-        ${active 
-          ? "text-slate-900 dark:text-white" 
-          : "text-slate-400 dark:text-zinc-600 hover:text-slate-600 dark:hover:text-zinc-400"
-        }`}
-    >
+    <button onClick={onClick} className={`flex flex-col items-center justify-center gap-1 h-full transition-colors ${active ? "text-slate-900 dark:text-white" : "text-slate-400 dark:text-zinc-600"}`}>
       {icon}
       <span className="text-[10px] font-medium">{label}</span>
     </button>

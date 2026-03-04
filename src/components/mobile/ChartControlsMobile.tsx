@@ -1,11 +1,11 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ChevronDown } from "lucide-react";
 import { useWebSocket, getAssetsByCategory } from "@/hooks/useWebSocket";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { AssetIcon } from "@/hooks/useAssetIcon"; 
 
 export interface Asset {
   id: number;
@@ -19,19 +19,8 @@ export interface Asset {
 interface ChartControlsMobileProps {
   selectedAsset: Asset;
   onAssetChange: (asset: Asset) => void;
-  selectedTimeframe: string;
-  onTimeframeChange: (timeframe: string) => void;
   currentPrice: number;
 }
-
-const TIMEFRAMES = [
-  { value: "60", label: "1m" },
-  { value: "300", label: "5m" },
-  { value: "900", label: "15m" },
-  { value: "3600", label: "1h" },
-  { value: "14400", label: "4h" },
-  { value: "86400", label: "1D" },
-];
 
 const CATEGORIES = ["all", "crypto", "forex", "commodities", "indices"];
 
@@ -39,17 +28,25 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
   const { 
     selectedAsset, 
     onAssetChange, 
-    selectedTimeframe, 
-    onTimeframeChange, 
     currentPrice 
   } = props;
   
   const { data: wsData } = useWebSocket();
-  
   const assetsByCat = useMemo(() => getAssetsByCategory(wsData || {}), [wsData]);
 
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState("all");
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    const checkDark = () => document.documentElement.classList.contains('dark');
+    setIsDark(checkDark());
+    
+    const observer = new MutationObserver(() => setIsDark(checkDark()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    
+    return () => observer.disconnect();
+  }, []);
 
   const handleAssetChange = (asset: any) => {
     const normalizedAsset: Asset = {
@@ -87,19 +84,17 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
   const isPositive = priceChange24h >= 0;
 
   return (
-    <div className="flex flex-col w-full bg-white dark:bg-black border-b border-gray-200 dark:border-zinc-800 transition-colors duration-300">
+    <div className="flex flex-col w-full bg-white dark:bg-black transition-colors duration-300">
       
-      {/* LIGNE 1 : Sélecteur & Prix */}
-      <div className="flex items-center justify-between px-4 py-3">
+      {/* Modification ici : Retrait de px-4 (padding horizontal) */}
+      <div className="flex items-center justify-between py-3">
         
-        {/* BOUTON D'OUVERTURE DU TIROIR */}
         <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
           <SheetTrigger asChild>
             <div className="flex items-center gap-3 cursor-pointer active:opacity-60 transition-opacity">
-                <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-zinc-700">
-                    <span className="text-xs font-bold text-slate-500 dark:text-zinc-400">
-                        {selectedAsset.symbol ? selectedAsset.symbol.substring(0,1) : "?"}
-                    </span>
+                
+                <div className="w-10 h-10 rounded-md bg-slate-100 dark:bg-zinc-800 flex items-center justify-center border border-slate-200 dark:border-zinc-700">
+                    <AssetIcon assetId={selectedAsset.id} isDark={isDark} size="24px" />
                 </div>
                 
                 <div className="flex flex-col">
@@ -119,11 +114,9 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
           <SheetContent side="bottom" className="h-[80dvh] w-full p-0 bg-white dark:bg-black rounded-t-2xl border-t border-zinc-200 dark:border-zinc-800">
             <div className="flex flex-col h-full">
                 
-                {/* Header (Catégories Seules) */}
                 <div className="p-4 border-b border-gray-100 dark:border-zinc-800">
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-3 px-1">Select Asset</h3>
                     
-                    {/* Catégories */}
                     <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
                         {CATEGORIES.map((cat) => (
                             <button
@@ -141,7 +134,6 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
                     </div>
                 </div>
 
-                {/* Liste des actifs */}
                 <ScrollArea className="flex-1">
                     <div className="flex flex-col pb-8">
                         {filteredAssets.length > 0 ? filteredAssets.map((asset) => (
@@ -151,9 +143,10 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
                                 className="flex items-center justify-between p-4 border-b border-gray-50 dark:border-zinc-900/50 active:bg-slate-50 dark:active:bg-zinc-900 transition-colors"
                             >
                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-full bg-slate-50 dark:bg-zinc-900 flex items-center justify-center">
-                                        <span className="text-xs font-bold text-slate-400">{asset.symbol.substring(0,1)}</span>
+                                    <div className="w-10 h-10 rounded-md bg-slate-50 dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800 flex items-center justify-center">
+                                        <AssetIcon assetId={Number(asset.id)} isDark={isDark} size="24px" />
                                     </div>
+
                                     <div className="flex flex-col items-start">
                                         <span className="font-bold text-sm text-slate-900 dark:text-white">{asset.symbol}</span>
                                         <span className="text-xs text-slate-500">{asset.name}</span>
@@ -180,7 +173,6 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
           </SheetContent>
         </Sheet>
 
-        {/* PRIX TEMPS RÉEL (DROITE) */}
         <div className="flex flex-col items-end">
             <span className="font-mono font-bold text-xl text-slate-900 dark:text-white leading-none tracking-tight">
                 {formatPrice(currentPrice)}
@@ -190,26 +182,6 @@ export const ChartControlsMobile = (props: ChartControlsMobileProps) => {
             </span>
         </div>
       </div>
-
-      {/* LIGNE 2 : Timeframes */}
-      <div className="w-full overflow-x-auto no-scrollbar border-t border-gray-100 dark:border-zinc-800 bg-slate-50/30 dark:bg-zinc-900/20">
-        <div className="flex items-center px-4 py-2 gap-2 min-w-max">
-            {TIMEFRAMES.map((tf) => (
-                <button
-                    key={tf.value}
-                    onClick={() => onTimeframeChange(tf.value)}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all
-                        ${selectedTimeframe === tf.value 
-                            ? 'bg-white shadow-sm text-black dark:bg-zinc-700 dark:text-white ring-1 ring-black/5 dark:ring-white/10' 
-                            : 'text-slate-500 hover:bg-slate-100 dark:text-zinc-500 dark:hover:bg-zinc-800'
-                        }`}
-                >
-                    {tf.label}
-                </button>
-            ))}
-        </div>
-      </div>
-
     </div>
   );
 };
