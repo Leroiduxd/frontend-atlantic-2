@@ -1,15 +1,15 @@
 "use client";
 
-import { TrendingUp, Wallet, Droplet, Sun, Moon, Vault, Compass } from "lucide-react";
+import { TrendingUp, Wallet, Droplet, Sun, Moon, Vault, Compass, Trophy } from "lucide-react";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useEffect, useState } from 'react';
 import { useTheme } from "next-themes"; 
 
 interface SidebarProps {
   setIsFaucetOpen: (open: boolean) => void;
-  // Ajout de 'scan' dans les types autorisés
-  currentView: 'trading' | 'vault' | 'scan';       
-  onNavigate: (view: 'trading' | 'vault' | 'scan') => void;
+  // Ajout de 'leaderboard' dans les types autorisés
+  currentView: 'trading' | 'vault' | 'scan' | 'leaderboard';       
+  onNavigate: (view: 'trading' | 'vault' | 'scan' | 'leaderboard') => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen, currentView, onNavigate }) => {
@@ -64,13 +64,22 @@ const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen, currentView, onNavig
           <Vault className="w-6 h-6" />
         </button>
 
-        {/* BOUTON SCAN / EXPLORER (NOUVEAU) */}
+        {/* BOUTON SCAN / EXPLORER */}
         <button
           onClick={() => onNavigate('scan')}
           className={getIconStyle('scan')}
           title="Explorer"
         >
           <Compass className="w-6 h-6" />
+        </button>
+
+        {/* BOUTON LEADERBOARD (NOUVEAU) */}
+        <button
+          onClick={() => onNavigate('leaderboard')}
+          className={getIconStyle('leaderboard')}
+          title="Leaderboard"
+        >
+          <Trophy className="w-6 h-6" />
         </button>
         
         {/* BOUTON FAUCET */}
