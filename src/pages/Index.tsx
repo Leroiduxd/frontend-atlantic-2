@@ -8,7 +8,7 @@ import { FaucetDialog } from "@/components/FaucetDialog";
 import { WelcomeOverlay } from "@/components/WelcomeOverlay";
 import MobileLayout from "@/components/mobile/MobileLayout"; 
 import Leaderboard from "@/components/Leaderboard";
-import Scan from "@/components/Scan"; // Vérifie bien la majuscule "Scan" pour éviter l'erreur de build
+import Scan from "@/components/scan"; // Vérifie bien la majuscule "Scan" pour éviter l'erreur de build
 
 const Index: React.FC = () => {
   const [currentView, setCurrentView] = useState<'trading' | 'vault' | 'scan' | 'leaderboard'>('trading');
