@@ -3,15 +3,15 @@
 import { useState, useMemo } from "react";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useChartData } from "@/hooks/useChartData";
-import { CandlestickChart, Briefcase, Landmark, Wallet, X } from "lucide-react"; 
+import { CandlestickChart, Briefcase, Trophy, Wallet, X } from "lucide-react"; // Remplacement Landmark par Trophy
+import { Sheet, SheetContent } from "@/components/ui/sheet"; 
 
-// Tes imports
 import { ChartControlsMobile, Asset } from "./ChartControlsMobile";
 import { LightweightChartMobile } from "./LightweightChartMobile";
 import { WalletView } from "./WalletView"; 
 import { OrderPanelMobile } from "./OrderPanelMobile"; 
 import { PositionsSectionMobile } from "./PositionsSectionMobile"; 
-import { VaultMobile } from "./VaultMobile";
+import { LeaderboardMobile } from "./LeaderboardMobile"; // Nouvel import !
 
 export default function MobileLayout() {
   const [activeTab, setActiveTab] = useState("trade");
@@ -52,7 +52,6 @@ export default function MobileLayout() {
     timeframe
   );
 
-  // Le graphique devient un simple bloc div que l'on passera au OrderPanel
   const chartComponent = isChartOpen ? (
     <div className="w-full h-[350px] flex-shrink-0 mb-4 border border-slate-200 dark:border-zinc-800 rounded-[4px] bg-white dark:bg-[#111] overflow-hidden flex flex-col transition-colors">
         <div className="flex items-center justify-between p-2 px-3 border-b border-slate-100 dark:border-zinc-900 transition-colors">
@@ -82,7 +81,6 @@ export default function MobileLayout() {
         
         {activeTab === "trade" && (
           <div className="flex flex-col h-full">
-            {/* Header avec sélecteur d'actif */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-zinc-900 transition-colors">
                <ChartControlsMobile
                 selectedAsset={selectedAsset}
@@ -90,8 +88,6 @@ export default function MobileLayout() {
                 currentPrice={livePrice}
               />
             </div>
-
-            {/* Panneau d'ordre */}
             <div className="flex-1 overflow-y-auto">
                 <OrderPanelMobile 
                     selectedAsset={selectedAsset}
@@ -107,18 +103,18 @@ export default function MobileLayout() {
           </div>
         )}
 
-        {/* AUTRES VUES */}
+        {/* NOUVELLE VUE LEADERBOARD */}
         {activeTab === "positions" && <div className="flex-1 h-full"><PositionsSectionMobile /></div>}
-        {activeTab === "vault" && <div className="flex-1 h-full"><VaultMobile /></div>}
+        {activeTab === "leaderboard" && <div className="flex-1 h-full"><LeaderboardMobile /></div>}
         {activeTab === "wallet" && <div className="flex-1 h-full"><WalletView /></div>}
       </div>
 
-      {/* ZONE INFÉRIEURE FIXE : NAVIGATION */}
       <div className="flex-none bg-white dark:bg-black border-t border-slate-200 dark:border-zinc-900 pb-safe transition-colors"> 
         <div className="grid grid-cols-4 h-16 items-center">
           <NavButton active={activeTab === "trade"} onClick={() => setActiveTab("trade")} icon={<CandlestickChart className="w-5 h-5" />} label="Trade" />
           <NavButton active={activeTab === "positions"} onClick={() => setActiveTab("positions")} icon={<Briefcase className="w-5 h-5" />} label="Positions" />
-          <NavButton active={activeTab === "vault"} onClick={() => setActiveTab("vault")} icon={<Landmark className="w-5 h-5" />} label="Vault" />
+          {/* NOUVEAU BOUTON RANKS */}
+          <NavButton active={activeTab === "leaderboard"} onClick={() => setActiveTab("leaderboard")} icon={<Trophy className="w-5 h-5" />} label="Ranks" />
           <NavButton active={activeTab === "wallet"} onClick={() => setActiveTab("wallet")} icon={<Wallet className="w-5 h-5" />} label="Wallet" />
         </div>
       </div>

@@ -1,18 +1,20 @@
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useWebSocket, getAssetsByCategory } from "@/hooks/useWebSocket";
 import { useAssetConfig } from "@/hooks/useAssetConfig"; 
 import { Hash } from 'viem'; 
-import { usePaymaster } from "@/hooks/useBrokexPaymaster"; // Mis à jour avec le bon chemin
+import { usePaymaster } from "@/hooks/useBrokexPaymaster"; 
 import { EditStopsDialog } from "@/components/EditStopsDialog";
 import { useAccount, useWriteContract } from 'wagmi';
-import { Loader2, Plus, Minus, Check, X } from 'lucide-react';
+import { Loader2, Plus, Minus, Check, X, Edit2 } from 'lucide-react';
+import { AssetIcon } from "@/hooks/useAssetIcon"; // Import de l'icône ajouté
 
-// --- MAPPING DES PAIRES (Ajouté du PC) ---
+// --- MAPPING DES PAIRES ---
 const PAIR_MAP: { [key: number]: string } = {
   6004:'aapl_usd', 6005:'amzn_usd', 6010:'coin_usd', 6003:'goog_usd',
   6011:'gme_usd', 6009:'intc_usd', 6059:'ko_usd', 6068:'mcd_usd',
@@ -26,47 +28,12 @@ const PAIR_MAP: { [key: number]: string } = {
 };
 
 // --- CONFIGURATION SMART CONTRACT ---
-const PAYMASTER_ADDRESS = '0xC7eA1B52D20d0B4135ae5cc8E4225b3F12eA279B'; // Mis à jour avec l'adresse du PC
+const PAYMASTER_ADDRESS = '0xC7eA1B52D20d0B4135ae5cc8E4225b3F12eA279B'; 
 const PAYMASTER_ABI = [
-  {
-    "inputs": [{ "internalType": "uint256", "name": "tradeId", "type": "uint256" }],
-    "name": "cancelOrder",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256", "name": "tradeId", "type": "uint256" },
-      { "internalType": "int32", "name": "lotsToClose", "type": "int32" },
-      { "internalType": "bytes", "name": "oracleProof", "type": "bytes" }
-    ],
-    "name": "closePositionMarket",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256", "name": "tradeId", "type": "uint256" },
-      { "internalType": "uint64", "name": "amount6", "type": "uint64" }
-    ],
-    "name": "addMargin",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256", "name": "tradeId", "type": "uint256" },
-      { "internalType": "uint48", "name": "newSL", "type": "uint48" },
-      { "internalType": "uint48", "name": "newTP", "type": "uint48" }
-    ],
-    "name": "updateSLTP",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
+  { "inputs": [{ "internalType": "uint256", "name": "tradeId", "type": "uint256" }], "name": "cancelOrder", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "tradeId", "type": "uint256" }, { "internalType": "int32", "name": "lotsToClose", "type": "int32" }, { "internalType": "bytes", "name": "oracleProof", "type": "bytes" }], "name": "closePositionMarket", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "tradeId", "type": "uint256" }, { "internalType": "uint64", "name": "amount6", "type": "uint64" }], "name": "addMargin", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+  { "inputs": [{ "internalType": "uint256", "name": "tradeId", "type": "uint256" }, { "internalType": "uint48", "name": "newSL", "type": "uint48" }, { "internalType": "uint48", "name": "newTP", "type": "uint48" }], "name": "updateSLTP", "outputs": [], "stateMutability": "nonpayable", "type": "function" }
 ] as const;
 
 // --- UTILS ---
@@ -92,20 +59,19 @@ const formatUSD = (valueX6: number): string => {
 };
 
 const formatDate = (timestamp: number) => {
-    try { return format(new Date(timestamp * 1000), "yyyy-MM-dd HH:mm"); } 
+    try { return format(new Date(timestamp * 1000), "MMM dd, HH:mm"); } 
     catch { return "---"; }
 };
 
 // =====================================================================
-// 📱 COMPOSANTS CARTES MOBILES
+// 📱 COMPOSANTS CARTES MOBILES (Design TraderExplorerView)
 // =====================================================================
 
 // 1. Position Active
-const PositionCardMobile = ({ position, onClose, onAddMargin, onEdit, symbolMap, getDisplaySymbol, isActionDisabled }: any) => {
+const PositionCardMobile = ({ position, onClose, onAddMargin, onEdit, symbolMap, getDisplaySymbol, isActionDisabled, isDark }: any) => {
     const maxLots = position.lots - position.closed_lots;
     const [isClosing, setIsClosing] = useState(false);
     const [lotsInput, setLotsInput] = useState(maxLots);
-    
     const [isAddingMargin, setIsAddingMargin] = useState(false);
     const [marginInput, setMarginInput] = useState(10);
 
@@ -114,107 +80,101 @@ const PositionCardMobile = ({ position, onClose, onAddMargin, onEdit, symbolMap,
     const roePercentText = position.calculatedROE !== null ? position.calculatedROE.toFixed(2) : '---';
     
     const pnlClass = isPNLPositive ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500';
-    const sideClass = position.long_side 
-        ? 'text-blue-600 bg-blue-100 dark:bg-blue-500/10' 
-        : 'text-red-600 bg-red-100 dark:bg-red-500/10';
-    
     const entryPrice = formatAssetPrice(position.entry_x6, position.asset_id, symbolMap);
     const liqPrice = position.liq_x6 > 0 ? formatAssetPrice(position.liq_x6, position.asset_id, symbolMap) : '---';
     
     return (
-        <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-gray-100 dark:border-zinc-800 mb-3 shadow-sm">
-            <div className="flex justify-between items-start mb-3">
-                <div className="flex flex-col">
-                    <span className="font-bold text-base dark:text-white">{getDisplaySymbol(position.assetSymbol, position.asset_id)}</span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded w-fit mt-1 ${sideClass}`}>
-                        {position.long_side ? 'LONG' : 'SHORT'} {position.leverage_x}x
+        <div className="p-4 flex flex-col gap-3 hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors border-b border-slate-100 dark:border-zinc-800/50">
+            <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2 font-semibold text-[13px] text-slate-800 dark:text-zinc-200">
+                    <AssetIcon assetId={position.asset_id} isDark={isDark} size="16px" />
+                    {getDisplaySymbol(position.assetSymbol, position.asset_id)}
+                </div>
+                <div className="text-[11px] font-bold">
+                    <span className={position.long_side ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}>
+                        {position.long_side ? 'LONG' : 'SHORT'}
+                    </span> 
+                    <span className="text-slate-400 dark:text-zinc-600 ml-1">x{position.leverage_x}</span>
+                </div>
+            </div>
+
+            <div className="flex justify-between items-end">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                    <div className="flex flex-col">
+                        <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">Entry / Mark</span>
+                        <span className="font-mono text-xs text-slate-700 dark:text-zinc-300">
+                            {entryPrice} / {position.currentPrice}
+                        </span>
+                    </div>
+                    <div className="flex flex-col">
+                        <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">Size / Margin</span>
+                        <span className="font-mono text-xs text-slate-700 dark:text-zinc-300">
+                            {position.size} / ${formatUSD(position.margin_usd6)}
+                        </span>
+                    </div>
+                    <div className="flex flex-col col-span-2">
+                        <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">Liq. Price</span>
+                        <span className="font-mono text-xs text-red-500">{liqPrice}</span>
+                    </div>
+                </div>
+
+                <div className="flex flex-col items-end">
+                    <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">PnL (ROE)</span>
+                    <span className={`font-mono font-bold text-sm ${pnlClass}`}>
+                        {isPNLPositive ? '+' : ''}{pnlUsdText}
+                    </span>
+                    <span className={`font-mono text-[10px] ${pnlClass}`}>
+                        {isPNLPositive ? '+' : ''}{roePercentText}%
                     </span>
                 </div>
-                <div className="text-right">
-                    <div className={`font-bold text-lg ${pnlClass}`}>
-                        {isPNLPositive ? '+' : ''}{pnlUsdText} <span className="text-xs text-slate-400">USD</span>
-                    </div>
-                    <span className={`text-xs font-semibold ${pnlClass}`}>({roePercentText}%)</span>
-                </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-y-3 text-xs mb-4">
-                <div>
-                    <span className="text-slate-400 block mb-0.5">Entry</span>
-                    <span className="font-mono dark:text-zinc-200">{entryPrice}</span>
-                </div>
-                <div className="text-right">
-                    <span className="text-slate-400 block mb-0.5">Mark</span>
-                    <span className="font-mono dark:text-zinc-200">{position.currentPrice}</span>
-                </div>
-                <div>
-                    <span className="text-slate-400 block mb-0.5">Size</span>
-                    <span className="font-mono dark:text-zinc-200">{position.size}</span>
-                </div>
-                <div className="text-right">
-                    <span className="text-slate-400 block mb-0.5">Liq. Price</span>
-                    <span className="font-mono text-red-500">{liqPrice}</span>
-                </div>
-                <div>
-                    <span className="text-slate-400 block mb-0.5">Margin</span>
-                    <span className="font-mono dark:text-zinc-200">${formatUSD(position.margin_usd6)}</span>
-                </div>
-            </div>
-
-            <div className="flex flex-col gap-2">
-                {/* Actions primaires */}
-                <div className="flex gap-2">
-                    <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => onEdit(position)}
+            {/* Ligne d'actions compacte */}
+            <div className="flex gap-2 mt-1 pt-3 border-t border-slate-100 dark:border-zinc-800/50">
+                <button 
+                    onClick={() => onEdit(position)}
+                    disabled={isActionDisabled}
+                    className="flex-1 py-1.5 flex items-center justify-center gap-1 text-[11px] font-semibold rounded-[4px] bg-slate-100 dark:bg-zinc-800/50 text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                >
+                    <Edit2 size={12} /> TP/SL
+                </button>
+                
+                {!isAddingMargin ? (
+                    <button
+                        onClick={() => { setIsAddingMargin(true); setMarginInput(10); setIsClosing(false); }}
                         disabled={isActionDisabled}
-                        className="flex-1 h-9 text-xs font-semibold dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                        className="flex-1 py-1.5 text-[11px] font-semibold rounded-[4px] bg-slate-100 dark:bg-zinc-800/50 text-blue-600 dark:text-blue-400 hover:bg-slate-200 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
                     >
-                        TP/SL
-                    </Button>
-                    
-                    {!isAddingMargin ? (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => { setIsAddingMargin(true); setMarginInput(10); setIsClosing(false); }}
-                            disabled={isActionDisabled}
-                            className="flex-1 h-9 text-xs font-semibold text-blue-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-blue-400"
-                        >
-                            + Margin
-                        </Button>
-                    ) : (
-                        <div className="flex-1 flex items-center justify-between h-9 bg-gray-50 dark:bg-zinc-900 border border-blue-300 dark:border-blue-800 rounded-md px-1">
-                            <button onClick={() => setMarginInput(prev => Math.max(1, prev - 10))} className="p-1 text-zinc-500"><Minus size={14}/></button>
-                            <span className="text-xs font-bold text-blue-600 dark:text-blue-400">${marginInput}</span>
-                            <button onClick={() => setMarginInput(prev => prev + 10)} className="p-1 text-zinc-500"><Plus size={14}/></button>
-                            <div className="flex gap-1 ml-1 border-l pl-1">
-                                <button onClick={() => { onAddMargin(position.id, marginInput); setIsAddingMargin(false); }} className="p-1 text-blue-600"><Check size={14}/></button>
-                                <button onClick={() => setIsAddingMargin(false)} className="p-1 text-zinc-500"><X size={14}/></button>
-                            </div>
+                        + Margin
+                    </button>
+                ) : (
+                    <div className="flex-1 flex items-center justify-between py-1 bg-white dark:bg-[#0a0a0a] border border-blue-300 dark:border-blue-800/50 rounded-[4px] px-1">
+                        <button onClick={() => setMarginInput(prev => Math.max(1, prev - 10))} className="p-1 text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300"><Minus size={12}/></button>
+                        <span className="text-[11px] font-mono font-bold text-blue-600 dark:text-blue-400">${marginInput}</span>
+                        <button onClick={() => setMarginInput(prev => prev + 10)} className="p-1 text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300"><Plus size={12}/></button>
+                        <div className="flex gap-1 ml-1 border-l border-slate-200 dark:border-zinc-800 pl-1">
+                            <button onClick={() => { onAddMargin(position.id, marginInput); setIsAddingMargin(false); }} className="p-1 text-blue-600 hover:text-blue-700"><Check size={12}/></button>
+                            <button onClick={() => setIsAddingMargin(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:text-zinc-500"><X size={12}/></button>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
 
-                {/* Close Button / Close Selector */}
                 {!isClosing ? (
-                    <Button 
-                        size="sm" 
+                    <button 
                         onClick={() => { setIsClosing(true); setLotsInput(maxLots); setIsAddingMargin(false); }}
                         disabled={isActionDisabled}
-                        className="w-full h-9 text-xs font-bold bg-slate-900 dark:bg-white dark:text-black dark:hover:bg-zinc-200"
+                        className="flex-1 py-1.5 text-[11px] font-semibold rounded-[4px] bg-slate-900 dark:bg-white text-white dark:text-black hover:opacity-90 transition-opacity disabled:opacity-50 flex justify-center items-center"
                     >
-                        {isActionDisabled ? <Loader2 className="w-3 h-3 animate-spin"/> : 'Close Position'}
-                    </Button>
+                        {isActionDisabled ? <Loader2 className="w-3 h-3 animate-spin"/> : 'Close'}
+                    </button>
                 ) : (
-                    <div className="flex items-center justify-between h-9 bg-gray-50 dark:bg-zinc-900 border border-red-300 dark:border-red-900 rounded-md px-2">
-                        <button onClick={() => setLotsInput(prev => Math.max(1, prev - 1))} className="p-1 text-zinc-500"><Minus size={14}/></button>
-                        <span className="text-xs font-bold text-red-600 dark:text-red-400">{lotsInput} Lot(s)</span>
-                        <button onClick={() => setLotsInput(prev => Math.min(maxLots, prev + 1))} className="p-1 text-zinc-500"><Plus size={14}/></button>
-                        <div className="flex gap-2 ml-2 border-l pl-2">
-                            <button onClick={() => { onClose(position.id, position.asset_id, lotsInput); setIsClosing(false); }} className="p-1 text-blue-600"><Check size={16}/></button>
-                            <button onClick={() => setIsClosing(false)} className="p-1 text-zinc-500"><X size={16}/></button>
+                    <div className="flex-1 flex items-center justify-between py-1 bg-white dark:bg-[#0a0a0a] border border-red-300 dark:border-red-900/50 rounded-[4px] px-1">
+                        <button onClick={() => setLotsInput(prev => Math.max(1, prev - 1))} className="p-1 text-slate-400 hover:text-slate-600 dark:text-zinc-500"><Minus size={12}/></button>
+                        <span className="text-[11px] font-mono font-bold text-red-600 dark:text-red-400">{lotsInput} Lot</span>
+                        <button onClick={() => setLotsInput(prev => Math.min(maxLots, prev + 1))} className="p-1 text-slate-400 hover:text-slate-600 dark:text-zinc-500"><Plus size={12}/></button>
+                        <div className="flex gap-1 ml-1 border-l border-slate-200 dark:border-zinc-800 pl-1">
+                            <button onClick={() => { onClose(position.id, position.asset_id, lotsInput); setIsClosing(false); }} className="p-1 text-red-600 hover:text-red-700"><Check size={12}/></button>
+                            <button onClick={() => setIsClosing(false)} className="p-1 text-slate-400 hover:text-slate-600 dark:text-zinc-500"><X size={12}/></button>
                         </div>
                     </div>
                 )}
@@ -224,95 +184,110 @@ const PositionCardMobile = ({ position, onClose, onAddMargin, onEdit, symbolMap,
 };
 
 // 2. Pending Order
-const OrderCardMobile = ({ order, onCancel, symbolMap, getDisplaySymbol, isActionDisabled }: any) => {
-    const sideClass = order.long_side 
-        ? 'text-blue-600 bg-blue-100 dark:bg-blue-500/10' 
-        : 'text-red-600 bg-red-100 dark:bg-red-500/10';
-
+const OrderCardMobile = ({ order, onCancel, symbolMap, getDisplaySymbol, isActionDisabled, isDark }: any) => {
     return (
-        <div className="bg-white dark:bg-zinc-900 p-4 rounded-xl border border-gray-100 dark:border-zinc-800 mb-3 shadow-sm">
-            <div className="flex justify-between items-center mb-3">
-                <span className="font-bold text-sm dark:text-white">{getDisplaySymbol(order.assetSymbol, order.asset_id)}</span>
+        <div className="p-4 flex flex-col gap-3 hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors border-b border-slate-100 dark:border-zinc-800/50">
+            <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2 font-semibold text-[13px] text-slate-800 dark:text-zinc-200">
+                    <AssetIcon assetId={order.asset_id} isDark={isDark} size="16px" />
+                    {getDisplaySymbol(order.assetSymbol, order.asset_id)}
+                </div>
                 <div className="flex flex-col items-end">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${sideClass}`}>
-                        {order.orderTypeString.toUpperCase()} {order.long_side ? 'LONG' : 'SHORT'}
-                    </span>
-                    <span className="text-[10px] text-slate-400 mt-1">{formatDate(order.created_at)}</span>
+                    <div className="text-[11px] font-bold">
+                        <span className="text-slate-500 dark:text-zinc-400 mr-1">{order.orderTypeString.toUpperCase()}</span>
+                        <span className={order.long_side ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}>
+                            {order.long_side ? 'LONG' : 'SHORT'}
+                        </span> 
+                    </div>
+                    <span className="text-[9px] font-mono text-slate-400 dark:text-zinc-500 mt-0.5">{formatDate(order.created_at)}</span>
                 </div>
             </div>
             
-            <div className="grid grid-cols-2 gap-y-2 text-xs mb-4">
-                <div>
-                    <span className="text-slate-400 block mb-0.5">Price</span>
-                    <span className="font-mono dark:text-zinc-200">{formatAssetPrice(order.target_x6, order.asset_id, symbolMap)}</span>
+            <div className="flex justify-between items-end">
+                <div className="flex flex-col">
+                    <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">Target Price</span>
+                    <span className="font-mono text-xs text-slate-700 dark:text-zinc-300">
+                        {formatAssetPrice(order.target_x6, order.asset_id, symbolMap)}
+                    </span>
                 </div>
-                <div className="text-right">
-                    <span className="text-slate-400 block mb-0.5">Amount</span>
-                    <span className="font-mono dark:text-zinc-200">{order.size}</span>
+                <div className="flex flex-col">
+                    <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">Size</span>
+                    <span className="font-mono text-xs text-slate-700 dark:text-zinc-300">{order.size}</span>
                 </div>
-                <div>
-                    <span className="text-slate-400 block mb-0.5">Margin</span>
-                    <span className="font-mono dark:text-zinc-200">${formatUSD(order.margin_usd6)}</span>
+                <div className="flex flex-col items-end">
+                    <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">Margin</span>
+                    <span className="font-mono text-xs text-slate-700 dark:text-zinc-300">${formatUSD(order.margin_usd6)}</span>
                 </div>
             </div>
 
-            <Button 
-                variant="secondary"
-                size="sm" 
-                onClick={() => onCancel(order.id)}
-                disabled={isActionDisabled}
-                className="w-full h-8 text-xs font-semibold bg-gray-100 dark:bg-zinc-800 text-gray-700 dark:text-zinc-300"
-            >
-                {isActionDisabled ? <Loader2 className="w-3 h-3 animate-spin"/> : 'Cancel Order'}
-            </Button>
+            <div className="mt-1 pt-3 border-t border-slate-100 dark:border-zinc-800/50">
+                <button 
+                    onClick={() => onCancel(order.id)}
+                    disabled={isActionDisabled}
+                    className="w-full py-1.5 text-[11px] font-semibold rounded-[4px] bg-slate-100 dark:bg-zinc-800/50 text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50 flex justify-center items-center"
+                >
+                    {isActionDisabled ? <Loader2 className="w-3 h-3 animate-spin"/> : 'Cancel Order'}
+                </button>
+            </div>
         </div>
     );
 };
 
 // 3. History Card (Closed/Cancelled)
-const HistoryCardMobile = ({ item, type, symbolMap, getDisplaySymbol }: any) => {
+const HistoryCardMobile = ({ item, type, symbolMap, getDisplaySymbol, isDark }: any) => {
     const isClosed = type === 'closed';
     const isPNLPositive = item.pnl_usd6 !== null && item.pnl_usd6 >= 0;
     
     const pnlClass = isPNLPositive ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500';
     const sideText = item.long_side ? 'LONG' : 'SHORT';
-    const sideColor = item.long_side ? 'text-blue-500' : 'text-red-500';
+    const sideColor = item.long_side ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500';
 
     return (
-        <div className="bg-white dark:bg-zinc-900 p-3 rounded-xl border border-gray-100 dark:border-zinc-800 mb-2 shadow-sm opacity-80">
-            <div className="flex justify-between items-center mb-2">
-                <div className="flex items-center gap-2">
-                    <span className="font-bold text-xs dark:text-white">{getDisplaySymbol(item.assetSymbol, item.asset_id)}</span>
-                    <span className={`text-[10px] font-bold ${sideColor}`}>{sideText}</span>
+        <div className="p-4 flex flex-col gap-3 hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors border-b border-slate-100 dark:border-zinc-800/50 opacity-80">
+            <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2 font-semibold text-[13px] text-slate-800 dark:text-zinc-200">
+                    <AssetIcon assetId={item.asset_id} isDark={isDark} size="16px" />
+                    {getDisplaySymbol(item.assetSymbol, item.asset_id)}
                 </div>
-                <span className="text-[10px] text-slate-400">{formatDate(item.created_at)}</span>
+                <div className="text-[11px] font-bold">
+                    <span className={sideColor}>{sideText}</span>
+                    <span className="text-slate-400 dark:text-zinc-600 ml-1">x{item.leverage_x}</span>
+                </div>
             </div>
             
-            <div className="flex justify-between items-center text-xs">
-                <div>
-                    {isClosed ? (
-                        <span className="font-mono dark:text-zinc-300">
-                            Entry: {formatAssetPrice(item.entry_x6, item.asset_id, symbolMap)}
-                        </span>
-                    ) : (
-                        <span className="font-mono text-slate-500">Cancelled</span>
-                    )}
+            <div className="flex justify-between items-end">
+                <div className="flex flex-col">
+                    <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">Entry / Size</span>
+                    <span className="font-mono text-xs text-slate-700 dark:text-zinc-300">
+                        {formatAssetPrice(item.entry_x6, item.asset_id, symbolMap)} / {item.size}
+                    </span>
                 </div>
                 
-                {isClosed && (
-                    <div className="text-right">
-                        <span className={`font-bold ${pnlClass}`}>
+                {isClosed ? (
+                    <div className="flex flex-col items-end">
+                        <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">PnL</span>
+                        <span className={`font-mono font-bold text-sm ${pnlClass}`}>
                             {item.pnl_usd6 ? `${isPNLPositive ? '+' : ''}$${formatUSD(item.pnl_usd6)}` : '-'}
                         </span>
                     </div>
+                ) : (
+                    <div className="flex flex-col items-end">
+                        <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">Status</span>
+                        <span className="font-mono text-xs text-slate-500">Cancelled</span>
+                    </div>
                 )}
+            </div>
+
+            <div className="flex justify-between items-center mt-1 pt-2 border-t border-slate-100 dark:border-zinc-800/50">
+                <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500">{formatDate(item.created_at)}</span>
+                <span className="text-[10px] font-mono text-slate-500 dark:text-zinc-500">Margin: ${formatUSD(item.margin_usd6)}</span>
             </div>
         </div>
     );
 };
 
 // =====================================================================
-// 🌟 COMPOSANT PRINCIPAL (Props ajoutées pour matcher PC)
+// 🌟 COMPOSANT PRINCIPAL
 // =====================================================================
 
 interface PositionsSectionMobileProps {
@@ -326,21 +301,21 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
     currentAssetId = null,
     currentAssetSymbol = ""
 }) => {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   const [activeTab, setActiveTab] = useState<"positions" | "orders" | "closed" | "cancelled">("positions");
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState<any>(null);
   
-  // States Données
   const [rawTrades, setRawTrades] = useState<any[]>([]);
   const [isLoadingTrades, setIsLoadingTrades] = useState(false);
 
-  // Hooks
   const { address } = useAccount();
   const { toast } = useToast();
   const { data: wsData } = useWebSocket();
   const { configs: assetConfigs, convertLotsToDisplay } = useAssetConfig(); 
   
-  // WAGMI & Paymaster Contracts
   const { writeContractAsync, isPending: isWritePending } = useWriteContract();
   const { 
     executeCloseMarket, 
@@ -350,9 +325,6 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
     isLoading: paymasterLoading 
   } = usePaymaster();
 
-  // ------------------------------------------------------------------
-  //  FETCHING LOGIC API (IDENTIQUE AU PC)
-  // ------------------------------------------------------------------
   const fetchTrades = async () => {
     if (!address) return;
     setIsLoadingTrades(true);
@@ -380,9 +352,6 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
     return () => clearInterval(interval);
   }, [address]);
 
-  // ------------------------------------------------------------------
-  //  DATA PROCESSING (MAPPINGS & CALCULS - IDENTIQUE AU PC)
-  // ------------------------------------------------------------------
   const assetSymbolMap = useMemo(() => {
     return assetConfigs.reduce((map, config) => {
         const powerOfTen = Math.round(Math.log10(1000000 / config.tick_size_usd6)); 
@@ -429,7 +398,7 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
             sl_x6: Number(t.stopLoss),
             tp_x6: Number(t.takeProfit),
             lots: Number(t.lotSize),
-            closed_lots: Number(t.closedLotSize || 0), // Ajouté du PC
+            closed_lots: Number(t.closedLotSize || 0), 
             created_at: Number(t.openTimestamp),
             target_x6: Number(t.openPrice),
             state: Number(t.state),
@@ -441,7 +410,6 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
         const assetWs = assetMap[position.asset_id];
         const remainingLots = position.lots - position.closed_lots;
 
-        // Calcul du prix de liquidation (Logique du PC)
         let liqPriceX6 = 0;
         if (position.entry_x6 > 0 && position.leverage_x > 0) {
             if (position.long_side) {
@@ -464,7 +432,7 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
             orderTypeString: position.is_limit ? 'Limit' : 'Stop'
         };
 
-        if (t.state === 1) { // OPEN
+        if (t.state === 1) { 
             if (assetWs?.currentPrice && position.entry_x6 > 0) {
                 const currentP = assetWs.currentPrice;
                 const entryP = position.entry_x6 / 1000000;
@@ -476,9 +444,9 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
                 enriched.calculatedROE = roe;
             }
             open.push(enriched);
-        } else if (t.state === 0) { // PENDING
+        } else if (t.state === 0) { 
             pending.push(enriched);
-        } else if (t.state === 2) { // CLOSED
+        } else if (t.state === 2) { 
             const closeP = position.closePriceX6 / 1000000;
             const entryP = position.entry_x6 / 1000000;
             const margin = position.margin_usd6 / 1000000;
@@ -489,7 +457,7 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
                 enriched.pnl_usd6 = pnl * 1000000; 
             }
             closed.push(enriched);
-        } else if (t.state === 3) { // CANCELLED
+        } else if (t.state === 3) { 
             cancelled.push(enriched);
         }
     });
@@ -503,13 +471,9 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
     };
 
   }, [rawTrades, assetMap, assetSymbolMap, convertLotsToDisplay]);
-
-  // --- ACTIONS LOGIC (IDENTIQUE AU PC) ---
   
   const getDisplaySymbol = (assetSymbol: string, assetId: number): string => {
-      if (PAIR_MAP[assetId]) {
-          return PAIR_MAP[assetId].split('_')[0].toUpperCase() + "/USD";
-      }
+      if (PAIR_MAP[assetId]) return PAIR_MAP[assetId].split('_')[0].toUpperCase() + "/USD";
       const baseSymbol = assetSymbol.split('/')[0];
       return assetId <= 1000 ? `${baseSymbol}/USD` : assetSymbol; 
   };
@@ -521,12 +485,7 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
            toast({ title: "Close Request Sent", description: "Processing via Paymaster..." });
         } else {
            const proof = await getMarketProof(assetId); 
-           await writeContractAsync({
-               address: PAYMASTER_ADDRESS,
-               abi: PAYMASTER_ABI,
-               functionName: 'closePositionMarket',
-               args: [BigInt(id), lotsToClose, proof]
-           });
+           await writeContractAsync({ address: PAYMASTER_ADDRESS, abi: PAYMASTER_ABI, functionName: 'closePositionMarket', args: [BigInt(id), lotsToClose, proof] });
            toast({ title: "Close Order Sent", description: "Transaction submitted." });
         }
         setTimeout(() => fetchTrades(), 3000);
@@ -542,12 +501,7 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
               await executeAddMargin({ tradeId: id, amount6: amount6Num });
               toast({ title: "Add Margin Sent", description: "Processing via Paymaster..." });
           } else {
-              await writeContractAsync({
-                  address: PAYMASTER_ADDRESS,
-                  abi: PAYMASTER_ABI,
-                  functionName: 'addMargin',
-                  args: [BigInt(id), BigInt(amount6Num)]
-              });
+              await writeContractAsync({ address: PAYMASTER_ADDRESS, abi: PAYMASTER_ABI, functionName: 'addMargin', args: [BigInt(id), BigInt(amount6Num)] });
               toast({ title: "Add Margin Sent", description: "Transaction submitted." });
           }
           setTimeout(() => fetchTrades(), 3000);
@@ -565,12 +519,7 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
             await executeUpdateSLTP({ tradeId: id, newSL, newTP });
             toast({ title: "Update Request Sent", description: "Processing via Paymaster..." });
         } else {
-            await writeContractAsync({
-                address: PAYMASTER_ADDRESS,
-                abi: PAYMASTER_ABI,
-                functionName: 'updateSLTP',
-                args: [BigInt(id), BigInt(newSL), BigInt(newTP)]
-            });
+            await writeContractAsync({ address: PAYMASTER_ADDRESS, abi: PAYMASTER_ABI, functionName: 'updateSLTP', args: [BigInt(id), BigInt(newSL), BigInt(newTP)] });
             toast({ title: "SL/TP Updated", description: "Transaction submitted." });
         }
         setTimeout(() => fetchTrades(), 2000);
@@ -585,12 +534,7 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
             await executeCancelOrder({ tradeId: id });
             toast({ title: "Cancel Request Sent", description: "Processing via Paymaster..." });
         } else {
-            await writeContractAsync({
-                address: PAYMASTER_ADDRESS,
-                abi: PAYMASTER_ABI,
-                functionName: 'cancelOrder',
-                args: [BigInt(id)]
-            });
+            await writeContractAsync({ address: PAYMASTER_ADDRESS, abi: PAYMASTER_ABI, functionName: 'cancelOrder', args: [BigInt(id)] });
             toast({ title: "Cancel Order Sent", description: "Transaction submitted." });
         }
         setTimeout(() => fetchTrades(), 3000);
@@ -602,10 +546,10 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
   const isActionDisabled = paymasterLoading || isWritePending;
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-black font-['Source_Code_Pro',_monospace]">
+    <div className="flex flex-col h-full w-full bg-white dark:bg-black font-sans transition-colors overflow-hidden">
         
-        {/* Navigation Onglets */}
-        <div className="flex p-2 bg-white dark:bg-zinc-950 border-b border-gray-100 dark:border-zinc-800 sticky top-0 z-10 overflow-x-auto no-scrollbar gap-2">
+        {/* Navigation Onglets (Style TraderExplorerView) */}
+        <div className="flex border-b border-slate-200 dark:border-zinc-800/60 bg-slate-100 dark:bg-zinc-950/30 sticky top-0 z-10 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             {[
                 { id: 'positions', label: `Open (${openPositions.length})` },
                 { id: 'orders', label: `Orders (${pendingOrders.length})` },
@@ -615,88 +559,101 @@ export const PositionsSectionMobile: React.FC<PositionsSectionMobileProps> = ({
                 <button 
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)} 
-                    className={`flex-shrink-0 px-4 py-2 text-xs font-bold rounded-lg transition-all 
-                        ${activeTab === tab.id 
-                            ? 'bg-slate-900 dark:bg-zinc-800 text-white' 
-                            : 'bg-transparent text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-900'}`}
+                    className={`flex-1 min-w-[90px] px-4 py-3 text-[11px] font-semibold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${
+                        activeTab === tab.id 
+                            ? 'text-slate-900 border-slate-900 bg-white dark:text-white dark:border-white dark:bg-zinc-900/50' 
+                            : 'text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-200/50 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-900/30'
+                    }`}
                 >
                     {tab.label}
                 </button>
             ))}
         </div>
 
-        {/* Contenu Scrollable */}
-        <div className="flex-1 overflow-y-auto p-4 pb-20">
+        {/* Contenu Scrollable (Style Liste sans espacements) */}
+        <div className="flex-1 overflow-y-auto pb-20 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             {activeTab === 'positions' && (
                 openPositions.length > 0 ? (
-                    openPositions.map(pos => (
-                        <PositionCardMobile 
-                            key={pos.id} 
-                            position={pos} 
-                            onClose={handleClosePosition} 
-                            onAddMargin={handleAddMargin}
-                            onEdit={(p: any) => { setSelectedPosition(p); setEditDialogOpen(true); }}
-                            symbolMap={assetSymbolMap}
-                            getDisplaySymbol={getDisplaySymbol}
-                            isActionDisabled={isActionDisabled}
-                        />
-                    ))
+                    <div className="flex flex-col divide-y divide-slate-100 dark:divide-zinc-800/50">
+                        {openPositions.map(pos => (
+                            <PositionCardMobile 
+                                key={pos.id} 
+                                position={pos} 
+                                onClose={handleClosePosition} 
+                                onAddMargin={handleAddMargin}
+                                onEdit={(p: any) => { setSelectedPosition(p); setEditDialogOpen(true); }}
+                                symbolMap={assetSymbolMap}
+                                getDisplaySymbol={getDisplaySymbol}
+                                isActionDisabled={isActionDisabled}
+                                isDark={isDark}
+                            />
+                        ))}
+                    </div>
                 ) : (
-                    <div className="text-center py-10 text-slate-400 text-sm">No open positions.</div>
+                    <div className="p-12 text-center text-slate-500 dark:text-zinc-600 font-mono text-sm">No open positions.</div>
                 )
             )}
 
             {activeTab === 'orders' && (
                 pendingOrders.length > 0 ? (
-                    pendingOrders.map(ord => (
-                        <OrderCardMobile 
-                            key={ord.id} 
-                            order={ord} 
-                            onCancel={handleCancelOrder}
-                            symbolMap={assetSymbolMap}
-                            getDisplaySymbol={getDisplaySymbol}
-                            isActionDisabled={isActionDisabled}
-                        />
-                    ))
+                    <div className="flex flex-col divide-y divide-slate-100 dark:divide-zinc-800/50">
+                        {pendingOrders.map(ord => (
+                            <OrderCardMobile 
+                                key={ord.id} 
+                                order={ord} 
+                                onCancel={handleCancelOrder}
+                                symbolMap={assetSymbolMap}
+                                getDisplaySymbol={getDisplaySymbol}
+                                isActionDisabled={isActionDisabled}
+                                isDark={isDark}
+                            />
+                        ))}
+                    </div>
                 ) : (
-                    <div className="text-center py-10 text-slate-400 text-sm">No pending orders.</div>
+                    <div className="p-12 text-center text-slate-500 dark:text-zinc-600 font-mono text-sm">No pending orders.</div>
                 )
             )}
 
             {activeTab === 'closed' && (
                 closedPositions.length > 0 ? (
-                    closedPositions.map(item => (
-                        <HistoryCardMobile 
-                            key={item.id} 
-                            item={item} 
-                            type="closed"
-                            symbolMap={assetSymbolMap}
-                            getDisplaySymbol={getDisplaySymbol}
-                        />
-                    ))
+                    <div className="flex flex-col divide-y divide-slate-100 dark:divide-zinc-800/50">
+                        {closedPositions.map(item => (
+                            <HistoryCardMobile 
+                                key={item.id} 
+                                item={item} 
+                                type="closed"
+                                symbolMap={assetSymbolMap}
+                                getDisplaySymbol={getDisplaySymbol}
+                                isDark={isDark}
+                            />
+                        ))}
+                    </div>
                 ) : (
-                    <div className="text-center py-10 text-slate-400 text-sm">No closed positions.</div>
+                    <div className="p-12 text-center text-slate-500 dark:text-zinc-600 font-mono text-sm">No closed positions.</div>
                 )
             )}
 
             {activeTab === 'cancelled' && (
                 cancelledOrders.length > 0 ? (
-                    cancelledOrders.map(item => (
-                        <HistoryCardMobile 
-                            key={item.id} 
-                            item={item} 
-                            type="cancelled"
-                            symbolMap={assetSymbolMap}
-                            getDisplaySymbol={getDisplaySymbol}
-                        />
-                    ))
+                    <div className="flex flex-col divide-y divide-slate-100 dark:divide-zinc-800/50">
+                        {cancelledOrders.map(item => (
+                            <HistoryCardMobile 
+                                key={item.id} 
+                                item={item} 
+                                type="cancelled"
+                                symbolMap={assetSymbolMap}
+                                getDisplaySymbol={getDisplaySymbol}
+                                isDark={isDark}
+                            />
+                        ))}
+                    </div>
                 ) : (
-                    <div className="text-center py-10 text-slate-400 text-sm">No cancelled orders.</div>
+                    <div className="p-12 text-center text-slate-500 dark:text-zinc-600 font-mono text-sm">No cancelled orders.</div>
                 )
             )}
         </div>
 
-        {/* Dialog Edit Stops (Resté en popup pour le mobile, meilleur UX) */}
+        {/* Dialog Edit Stops */}
         {selectedPosition && (
             <EditStopsDialog
                 open={editDialogOpen}

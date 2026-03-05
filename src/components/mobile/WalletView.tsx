@@ -1,139 +1,114 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAccount, useWriteContract, useReadContracts, usePublicClient } from 'wagmi';
 import { useFaucet } from '@/hooks/useFaucet';
 import { useToast } from '@/hooks/use-toast';
-import { Wallet, ArrowDownToLine, ArrowUpFromLine, Droplet, CheckCircle, Loader2 } from 'lucide-react';
+import { Wallet, ArrowDownToLine, ArrowUpFromLine, Droplet, CheckCircle, Loader2, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card } from '@/components/ui/card';
 import { ConnectButton } from '@rainbow-me/rainbowkit'; 
 import { parseUnits, formatUnits } from 'viem';
 
-// --- CONSTANTES DU SMART CONTRACT (VAULT) ---
+// --- ADRESSES (À CHANGER AVEC LES TIENNES) ---
 const VAULT_ADDRESS = '0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0';
+const TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b'; // ⚠️ REMPLACE PAR L'ADRESSE DE TON TOKEN USDC/TUSD ERC20 ⚠️
+
+// --- ABIs ---
 const VAULT_ABI = [
-    {
-        "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }],
-        "name": "traderDeposit",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }],
-        "name": "traderWithdraw",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [{ "internalType": "address", "name": "trader", "type": "address" }],
-        "name": "getTraderTotalBalance",
-        "outputs": [{ "internalType": "uint256", "name": "total6", "type": "uint256" }],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [{ "internalType": "address", "name": "", "type": "address" }],
-        "name": "freeBalance",
-        "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
-        "stateMutability": "view",
-        "type": "function"
-    }
+    { "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }], "name": "traderDeposit", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }], "name": "traderWithdraw", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
+    { "inputs": [{ "internalType": "address", "name": "trader", "type": "address" }], "name": "getTraderTotalBalance", "outputs": [{ "internalType": "uint256", "name": "total6", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [{ "internalType": "address", "name": "", "type": "address" }], "name": "freeBalance", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" }
+] as const;
+
+const ERC20_ABI = [
+    { "inputs": [{ "internalType": "address", "name": "account", "type": "address" }], "name": "balanceOf", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [{ "internalType": "address", "name": "owner", "type": "address" }, { "internalType": "address", "name": "spender", "type": "address" }], "name": "allowance", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
+    { "inputs": [{ "internalType": "address", "name": "spender", "type": "address" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }], "name": "approve", "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }], "stateMutability": "nonpayable", "type": "function" }
 ] as const;
 
 export const WalletView = () => {
   const { address, isConnected } = useAccount();
   const { toast } = useToast();
   
-  // --- WAGMI WRITE & PUBLIC CLIENT ---
   const { writeContractAsync } = useWriteContract();
   const publicClient = usePublicClient();
 
-  // --- LECTURE DES SOLDES (EN TEMPS RÉEL) ---
-  const { data: vaultData, refetch: refetchVaultData } = useReadContracts({
+  // --- LECTURE DES SOLDES (VAULT + WALLET) ---
+  const safeAddress = address || '0x0000000000000000000000000000000000000000';
+
+  const { data: chainData, refetch: refetchData } = useReadContracts({
     contracts: [
-        {
-            address: VAULT_ADDRESS,
-            abi: VAULT_ABI,
-            functionName: 'getTraderTotalBalance',
-            args: address ? [address] : undefined,
-        },
-        {
-            address: VAULT_ADDRESS,
-            abi: VAULT_ABI,
-            functionName: 'freeBalance',
-            args: address ? [address] : undefined,
-        }
+        { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'getTraderTotalBalance', args: [safeAddress] },
+        { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'freeBalance', args: [safeAddress] },
+        { address: TOKEN_ADDRESS, abi: ERC20_ABI, functionName: 'balanceOf', args: [safeAddress] },
+        { address: TOKEN_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: [safeAddress, VAULT_ADDRESS] }
     ],
-    query: {
-        enabled: !!address,
-        refetchInterval: 3000 // Refresh toutes les 3s
-    }
+    query: { enabled: !!address, refetchInterval: 3000 }
   });
 
-  const rawTotalBalance = vaultData?.[0]?.result || 0n;
-  const rawFreeBalance = vaultData?.[1]?.result || 0n;
-
-  // Calculs (6 décimales pour l'USDC)
-  const vaultTotalDisplay = Number(formatUnits(rawTotalBalance, 6));
-  const vaultAvailableDisplay = Number(formatUnits(rawFreeBalance, 6));
+  // Extraction et formatage (On assume 6 décimales pour le stablecoin)
+  const vaultTotalDisplay = chainData?.[0]?.status === 'success' ? Number(formatUnits(chainData[0].result as bigint, 6)) : 0;
+  const vaultAvailableDisplay = chainData?.[1]?.status === 'success' ? Number(formatUnits(chainData[1].result as bigint, 6)) : 0;
   const vaultLockedDisplay = vaultTotalDisplay - vaultAvailableDisplay;
+  
+  const walletBalanceDisplay = chainData?.[2]?.status === 'success' ? Number(formatUnits(chainData[2].result as bigint, 6)) : 0;
+  const tokenAllowance = chainData?.[3]?.status === 'success' ? (chainData[3].result as bigint) : 0n;
 
-  // --- HOOK FAUCET (Optionnel, gardé pour le setup) ---
-  const { 
-    hasClaimed, 
-    isClaiming, 
-    claimTestTokens,
-    isApproved, 
-    isApproving,
-    approveVault,
-    isLoadingClaimStatus
-  } = useFaucet();
+  // --- HOOK FAUCET ---
+  const { hasClaimed, isClaiming, claimTestTokens } = useFaucet();
 
   // --- ÉTATS LOCAUX ---
   const [mode, setMode] = useState<'deposit' | 'withdraw'>('deposit');
   const [amount, setAmount] = useState('');
   const [isTransacting, setIsTransacting] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
 
-  // --- CALCUL MAX AMOUNT ---
-  // Pour le Deposit : On devrait idéalement lire le solde du Wallet (USDC) via useBalance ou ERC20
-  // Pour l'instant, on met un montant arbitraire élevé ou on garde l'ancienne logique si dispo
-  // Pour le Withdraw : C'est le `freeBalance` du Vault.
+  // Limites dynamiques
   const maxWithdraw = vaultAvailableDisplay;
-  
-  // NOTE: Ici pour l'exemple Deposit, je ne bloque pas le max par le wallet balance 
-  // car je n'ai pas l'adresse du token USDC. Dans une vraie app, ajoutez useBalance(USDC).
-  const maxAmount = mode === 'withdraw' ? maxWithdraw : 999999; 
+  const maxDeposit = walletBalanceDisplay;
 
-  // --- HANDLERS ---
   const handleSetMax = () => {
-    setAmount(mode === 'withdraw' ? maxWithdraw.toFixed(2) : ''); // Max deposit illimité pour l'UI ici
+    setAmount(mode === 'withdraw' ? maxWithdraw.toFixed(2) : maxDeposit.toFixed(2)); 
   };
 
+  // --- LOGIQUE DE TRANSACTION (APPROVE + DEPOSIT / WITHDRAW) ---
   const handleTransaction = async () => {
     if (!amount || parseFloat(amount) <= 0) return;
-    setIsTransacting(true);
     
     try {
       const amount6 = parseUnits(amount, 6);
       let hash;
 
       if (mode === 'deposit') {
+        // 1. Vérification de l'allowance
+        if (tokenAllowance < amount6) {
+            setIsApproving(true);
+            toast({ title: "Approval Required", description: "Please approve the token first." });
+            
+            const approveHash = await writeContractAsync({
+                address: TOKEN_ADDRESS, 
+                abi: ERC20_ABI, 
+                functionName: 'approve', 
+                args: [VAULT_ADDRESS, amount6], // On approve le montant exact (ou utiliser la valeur MAX (2^256-1) si tu préfères)
+            });
+
+            if (publicClient) await publicClient.waitForTransactionReceipt({ hash: approveHash });
+            toast({ title: "Approved", description: "Token approved successfully." });
+            setIsApproving(false);
+        }
+
+        // 2. Dépôt
+        setIsTransacting(true);
         hash = await writeContractAsync({
-            address: VAULT_ADDRESS,
-            abi: VAULT_ABI,
-            functionName: 'traderDeposit',
-            args: [amount6],
+            address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'traderDeposit', args: [amount6],
         });
       } else {
+        // 3. Retrait
+        setIsTransacting(true);
         hash = await writeContractAsync({
-            address: VAULT_ADDRESS,
-            abi: VAULT_ABI,
-            functionName: 'traderWithdraw',
-            args: [amount6],
+            address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'traderWithdraw', args: [amount6],
         });
       }
 
@@ -143,30 +118,40 @@ export const WalletView = () => {
           await publicClient.waitForTransactionReceipt({ hash });
       }
 
-      toast({ title: "Success", description: `${mode === 'deposit' ? 'Deposited' : 'Withdrawn'} ${amount} TUSD` });
+      toast({ title: "Success", description: `${mode === 'deposit' ? 'Deposited' : 'Withdrawn'} ${amount} USDT` });
       setAmount('');
-      
-      // Refresh Data
-      setTimeout(() => refetchVaultData(), 1000);
+      setTimeout(() => refetchData(), 1000);
 
     } catch (e: any) {
       console.error(e);
       toast({ title: "Error", description: e.message || "Transaction failed", variant: "destructive" });
     } finally {
       setIsTransacting(false);
+      setIsApproving(false);
     }
+  };
+
+  const handleFaucetClaim = async () => {
+      if (isClaiming) return;
+      try {
+          await claimTestTokens();
+          toast({ title: "Tokens Claimed", description: "1,000 USDT added to your wallet." });
+          setTimeout(() => refetchData(), 2000);
+      } catch (e: any) {
+          toast({ title: "Claim failed", description: e.message, variant: "destructive" });
+      }
   };
 
   // --- RENDER : NOT CONNECTED ---
   if (!isConnected) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6 text-center space-y-6 bg-white dark:bg-black">
-        <div className="w-20 h-20 bg-slate-100 dark:bg-zinc-900 rounded-full flex items-center justify-center">
-          <Wallet className="w-10 h-10 text-slate-400" />
+      <div className="flex flex-col items-center justify-center h-full p-6 text-center space-y-6 bg-white dark:bg-black transition-colors">
+        <div className="w-20 h-20 bg-slate-100 dark:bg-zinc-900 rounded-full flex items-center justify-center border border-slate-200 dark:border-zinc-800">
+          <Wallet className="w-10 h-10 text-slate-400 dark:text-zinc-500" />
         </div>
         <div>
-          <h2 className="text-2xl font-bold mb-2">Connect Wallet</h2>
-          <p className="text-slate-500 dark:text-zinc-400">
+          <h2 className="text-xl font-bold mb-2 text-slate-900 dark:text-white tracking-tight">Connect Wallet</h2>
+          <p className="text-sm text-slate-500 dark:text-zinc-400 max-w-xs mx-auto">
             Connect your wallet to manage your funds, claim test tokens, and start trading.
           </p>
         </div>
@@ -177,125 +162,127 @@ export const WalletView = () => {
     );
   }
 
+  // --- ÉTATS DES BOUTONS ---
+  const needsApproval = mode === 'deposit' && amount && parseFloat(amount) > 0 && tokenAllowance < parseUnits(amount, 6);
+  const buttonText = isApproving ? 'Approving...' : isTransacting ? 'Confirming...' : needsApproval ? 'Approve & Deposit' : mode === 'deposit' ? 'Confirm Deposit' : 'Confirm Withdraw';
+
   return (
-    <div className="flex flex-col h-full bg-slate-50 dark:bg-black overflow-y-auto pb-24">
+    <div className="flex flex-col h-full bg-white dark:bg-black font-sans overflow-y-auto pb-24 transition-colors [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
       
-      {/* 1. BALANCE CARD (Données Réelles du Contrat) */}
-      <div className="p-4 bg-white dark:bg-black border-b border-gray-100 dark:border-zinc-800">
-        <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Total Equity (Vault)</span>
-        <div className="text-4xl font-bold mt-1 mb-4 dark:text-white">
+      {/* 1. BALANCE CARD (Vault) */}
+      <div className="p-6 bg-slate-50 dark:bg-[#0a0a0a] border-b border-slate-200 dark:border-zinc-800/60 flex flex-col items-center justify-center text-center">
+        <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest mb-1">Vault Equity</span>
+        <div className="text-4xl font-mono font-bold text-slate-900 dark:text-white mb-6">
           ${vaultTotalDisplay.toFixed(2)}
         </div>
         
-        <div className="grid grid-cols-2 gap-4">
-          <div className="p-3 bg-slate-50 dark:bg-zinc-900 rounded-lg">
-            <span className="text-[10px] text-slate-500 block">Available Margin</span>
-            <span className="font-mono font-semibold dark:text-white">${vaultAvailableDisplay.toFixed(2)}</span>
+        {/* GRILLE PLEINE LARGEUR */}
+        <div className="grid grid-cols-2 gap-3 w-full">
+          <div className="p-3 bg-white dark:bg-[#111] border border-slate-200 dark:border-zinc-800/60 rounded-md flex flex-col items-center justify-center">
+            <span className="text-[9px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest mb-0.5">Available</span>
+            <span className="font-mono text-sm font-semibold text-slate-900 dark:text-white">${vaultAvailableDisplay.toFixed(2)}</span>
           </div>
-          <div className="p-3 bg-slate-50 dark:bg-zinc-900 rounded-lg">
-            <span className="text-[10px] text-slate-500 block">Used Margin</span>
-            <span className="font-mono font-semibold dark:text-white">${vaultLockedDisplay.toFixed(2)}</span>
+          <div className="p-3 bg-white dark:bg-[#111] border border-slate-200 dark:border-zinc-800/60 rounded-md flex flex-col items-center justify-center">
+            <span className="text-[9px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest mb-0.5">Locked</span>
+            <span className="font-mono text-sm font-semibold text-slate-900 dark:text-white">${vaultLockedDisplay.toFixed(2)}</span>
           </div>
         </div>
       </div>
 
-      {/* 2. FAUCET SECTION (Keep as is for onboarding) */}
-      {(!hasClaimed || !isApproved) && !isLoadingClaimStatus && (
-        <div className="p-4">
-          <Card className="p-4 border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-900">
-            <h3 className="font-bold text-amber-700 dark:text-amber-500 flex items-center gap-2 mb-3">
-              <Droplet className="w-4 h-4" /> Setup Account
-            </h3>
-            
-            <div className="space-y-3">
-              {/* Claim */}
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-amber-800 dark:text-amber-200">1. Get 10,000 TUSD</span>
-                {hasClaimed ? (
-                  <span className="text-green-600 flex items-center text-xs font-bold"><CheckCircle className="w-4 h-4 mr-1"/> Done</span>
-                ) : (
-                  <Button size="sm" onClick={() => claimTestTokens()} disabled={isClaiming} className="bg-amber-600 hover:bg-amber-700 text-white h-8 text-xs">
-                    {isClaiming ? <Loader2 className="w-3 h-3 animate-spin"/> : 'Claim'}
-                  </Button>
-                )}
-              </div>
-
-              {/* Approve */}
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-amber-800 dark:text-amber-200">2. Approve Vault</span>
-                {isApproved ? (
-                  <span className="text-green-600 flex items-center text-xs font-bold"><CheckCircle className="w-4 h-4 mr-1"/> Done</span>
-                ) : (
-                  <Button size="sm" onClick={() => approveVault()} disabled={!hasClaimed || isApproving} className="bg-amber-600 hover:bg-amber-700 text-white h-8 text-xs">
-                    {isApproving ? <Loader2 className="w-3 h-3 animate-spin"/> : 'Approve'}
-                  </Button>
-                )}
-              </div>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* 3. ACTIONS (Direct Contract Interaction) */}
-      <div className="p-4 flex-1">
+      {/* 2. ACTIONS (Deposit / Withdraw) */}
+      <div className="p-4 flex-col">
+        
         {/* Tabs */}
-        <div className="flex p-1 bg-white dark:bg-zinc-900 rounded-xl mb-6 border border-gray-100 dark:border-zinc-800">
+        <div className="flex bg-slate-50 dark:bg-[#111] border border-slate-200 dark:border-zinc-800 rounded-[4px] p-0.5 mb-5">
           <button
             onClick={() => setMode('deposit')}
-            className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2
+            className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider rounded-[2px] transition-colors flex items-center justify-center gap-2
               ${mode === 'deposit' 
-                ? 'bg-blue-600 text-white shadow-md' 
-                : 'text-slate-500 dark:text-zinc-500 hover:bg-slate-50 dark:hover:bg-zinc-800'}`}
+                ? 'bg-white dark:bg-[#2A2A2A] text-slate-900 dark:text-white shadow-sm' 
+                : 'text-slate-500 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300'}`}
           >
-            <ArrowDownToLine className="w-4 h-4" /> Deposit
+            <ArrowDownToLine className="w-3.5 h-3.5" /> Deposit
           </button>
           <button
             onClick={() => setMode('withdraw')}
-            className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2
+            className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-wider rounded-[2px] transition-colors flex items-center justify-center gap-2
               ${mode === 'withdraw' 
-                ? 'bg-red-600 text-white shadow-md' 
-                : 'text-slate-500 dark:text-zinc-500 hover:bg-slate-50 dark:hover:bg-zinc-800'}`}
+                ? 'bg-white dark:bg-[#2A2A2A] text-slate-900 dark:text-white shadow-sm' 
+                : 'text-slate-500 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300'}`}
           >
-            <ArrowUpFromLine className="w-4 h-4" /> Withdraw
+            <ArrowUpFromLine className="w-3.5 h-3.5" /> Withdraw
           </button>
+        </div>
+
+        {/* Info Wallet (Wallet Balance) */}
+        <div className="flex justify-between items-center bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/50 p-3 rounded-md mb-5">
+            <div className="flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-blue-600 dark:text-blue-500" />
+                <span className="text-xs font-semibold text-blue-900 dark:text-blue-200">Wallet Balance</span>
+            </div>
+            <span className="font-mono text-sm font-bold text-blue-700 dark:text-blue-400">{walletBalanceDisplay.toFixed(2)} USDT</span>
         </div>
 
         {/* Formulaire */}
         <div className="space-y-4">
           <div className="space-y-2">
-            <div className="flex justify-between text-xs text-slate-500">
-              <span>Amount</span>
-              {mode === 'withdraw' && <span>Max: {maxWithdraw.toFixed(2)} TUSD</span>}
+            <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 px-1">
+              <span>Amount (USDT)</span>
+              <span>Max: {mode === 'withdraw' ? maxWithdraw.toFixed(2) : maxDeposit.toFixed(2)}</span>
             </div>
             
-            <div className="relative">
+            <div className="relative flex items-center bg-slate-50 dark:bg-[#111] border border-slate-200 dark:border-zinc-800 rounded-[4px] focus-within:border-blue-500 dark:focus-within:border-blue-500 transition-colors h-14 px-3">
               <Input
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
-                className="h-14 text-xl font-mono pl-4 pr-20 bg-white dark:bg-zinc-900 border-gray-200 dark:border-zinc-800 rounded-xl focus-visible:ring-0 focus-visible:border-blue-500"
+                className="flex-1 h-full bg-transparent border-none text-slate-900 dark:text-white text-lg font-mono focus-visible:ring-0 px-0 [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               />
               <button 
                 onClick={handleSetMax}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded"
+                className="text-[10px] font-bold text-blue-600 dark:text-blue-500 bg-blue-100 dark:bg-blue-500/10 hover:bg-blue-200 dark:hover:bg-blue-500/20 px-3 py-1.5 rounded-[2px] transition-colors uppercase tracking-widest"
               >
-                MAX
+                Max
               </button>
             </div>
           </div>
 
           <Button 
             onClick={handleTransaction}
-            disabled={isTransacting || !amount || parseFloat(amount) <= 0}
-            className={`w-full h-12 text-lg font-bold shadow-lg transition-transform active:scale-[0.98] rounded-xl
-              ${mode === 'deposit' 
-                ? 'bg-blue-600 hover:bg-blue-700 shadow-blue-500/20' 
-                : 'bg-red-600 hover:bg-red-700 shadow-red-500/20'}`}
+            disabled={isTransacting || isApproving || !amount || parseFloat(amount) <= 0 || (mode === 'deposit' && parseFloat(amount) > walletBalanceDisplay) || (mode === 'withdraw' && parseFloat(amount) > maxWithdraw)}
+            className={`w-full h-12 text-sm font-bold shadow-none transition-transform active:scale-[0.98] rounded-[4px] uppercase tracking-wider
+              ${needsApproval ? 'bg-amber-500 hover:bg-amber-600 text-black' : 'bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black'}`}
           >
-            {isTransacting ? <Loader2 className="animate-spin" /> : (mode === 'deposit' ? 'Confirm Deposit' : 'Confirm Withdraw')}
+            {(isTransacting || isApproving) ? <Loader2 className="animate-spin w-4 h-4" /> : buttonText}
           </Button>
         </div>
+      </div>
+
+      {/* 3. FAUCET JOURNALIER (Bottom Section) */}
+      <div className="p-4 mt-2">
+          <div className="p-4 bg-slate-50 dark:bg-[#111] border border-slate-200 dark:border-zinc-800/60 rounded-md">
+            <div className="flex items-center gap-2 mb-2">
+                <Droplet className="w-4 h-4 text-blue-500" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Daily Faucet</h3>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-zinc-400 mb-4">
+                Need more test funds? You can claim 1,000 USDT every 24 hours.
+            </p>
+            
+            <Button
+                onClick={handleFaucetClaim}
+                disabled={hasClaimed || isClaiming}
+                variant="outline"
+                className="w-full text-xs font-bold border-blue-200 dark:border-blue-900/50 bg-white dark:bg-black text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors h-10"
+            >
+                {isClaiming ? <Loader2 className="w-4 h-4 animate-spin" /> : hasClaimed ? (
+                    <><CheckCircle className="w-4 h-4 mr-2" /> Already Claimed Today</>
+                ) : (
+                    'Claim 1,000 USDT'
+                )}
+            </Button>
+          </div>
       </div>
 
     </div>

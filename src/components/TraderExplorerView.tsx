@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { User } from 'lucide-react';
 import { format } from "date-fns";
 import { useTheme } from "next-themes";
-import { AssetIcon } from "@/hooks/useAssetIcon"; // Import direct du composant
+import { AssetIcon } from "@/hooks/useAssetIcon";
 import { getAssetsByCategory } from '@/hooks/useWebSocket';
 
 // --- CONSTANTES ---
@@ -111,83 +111,146 @@ export default function TraderExplorerView({ address, wsData }: { address: strin
 
     return (
         <div className="w-full bg-white dark:bg-[#0a0a0a] shadow-sm border border-slate-200 dark:border-zinc-800/60 rounded-xl overflow-hidden min-h-[500px]">
-            <div className="p-6 border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50 dark:bg-zinc-950/50 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg flex items-center justify-center text-slate-500 dark:text-zinc-400"><User size={24} /></div>
-                    <div>
-                        <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Trader Profile</h2>
-                        <p className="text-sm text-slate-500 dark:text-zinc-500 font-mono mt-1 break-all">{address}</p>
+            
+            {/* HEADER METRICS (Responsive Grid on Mobile) */}
+            <div className="p-4 md:p-6 border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50 dark:bg-zinc-950/50 flex flex-col md:flex-row md:items-center justify-between gap-5">
+                <div className="flex items-center gap-3 md:gap-4 w-full min-w-0">
+                    <div className="flex-shrink-0 w-10 h-10 md:w-12 md:h-12 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg flex items-center justify-center text-slate-500 dark:text-zinc-400">
+                        <User className="w-5 h-5 md:w-6 md:h-6" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <h2 className="text-lg md:text-xl font-bold text-slate-900 dark:text-white tracking-tight truncate">Trader Profile</h2>
+                        <p className="text-xs text-slate-500 dark:text-zinc-500 font-mono mt-0.5 truncate">{address}</p>
                     </div>
                 </div>
-                <div className="flex gap-8">
+                
+                <div className="grid grid-cols-2 md:flex gap-4 md:gap-8 w-full md:w-auto">
                     <div>
                         <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Unrealized PnL</p>
-                        <p className={`text-xl font-mono font-bold ${totalUnrealizedPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
+                        <p className={`text-base md:text-xl font-mono font-bold ${totalUnrealizedPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
                             {totalUnrealizedPnl >= 0 ? '+' : ''}{formatUSDExact(totalUnrealizedPnl)}
                         </p>
                     </div>
                     <div>
-                        <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Total Realized PnL</p>
-                        <p className={`text-xl font-mono font-bold ${traderMetrics.pnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
+                        <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Realized PnL</p>
+                        <p className={`text-base md:text-xl font-mono font-bold ${traderMetrics.pnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
                             {traderMetrics.pnl >= 0 ? '+' : ''}{formatUSDExact(traderMetrics.pnl)}
                         </p>
                     </div>
-                    <div>
+                    <div className="col-span-2 md:col-span-1">
                         <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Total Volume</p>
-                        <p className="text-xl font-mono font-bold text-slate-900 dark:text-white">{formatCurrency(traderMetrics.vol)}</p>
+                        <p className="text-base md:text-xl font-mono font-bold text-slate-900 dark:text-white">{formatCurrency(traderMetrics.vol)}</p>
                     </div>
                 </div>
             </div>
 
-            <div className="flex border-b border-slate-200 dark:border-zinc-800/60 bg-slate-100 dark:bg-zinc-950/30 sticky top-0 z-10">
+            {/* TABS (Scrollable on Mobile) */}
+            <div className="flex border-b border-slate-200 dark:border-zinc-800/60 bg-slate-100 dark:bg-zinc-950/30 sticky top-0 z-10 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 {['open','pending','closed','cancelled'].map(tab => (
-                    <button key={tab} onClick={() => setActiveTab(tab as any)} className={`px-5 py-3 text-[11px] font-semibold uppercase tracking-wider transition-colors border-b-2 ${activeTab === tab ? 'text-slate-900 border-slate-900 bg-white dark:text-white dark:border-white dark:bg-zinc-900/50' : 'text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-200/50 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-900/30'}`}>
+                    <button 
+                        key={tab} 
+                        onClick={() => setActiveTab(tab as any)} 
+                        className={`flex-1 min-w-[90px] px-4 py-3 text-[11px] font-semibold uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${activeTab === tab ? 'text-slate-900 border-slate-900 bg-white dark:text-white dark:border-white dark:bg-zinc-900/50' : 'text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-200/50 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-900/30'}`}
+                    >
                         {tab}
                     </button>
                 ))}
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="w-full">
                 {isLoading ? (
                     <div className="p-12 text-center text-slate-500 dark:text-zinc-500 font-mono text-sm animate-pulse">Fetching trader history...</div>
                 ) : currentData.length === 0 ? (
                     <div className="p-12 text-center text-slate-500 dark:text-zinc-600 font-mono text-sm">No trades found in this category.</div>
                 ) : (
-                    <table className="w-full text-left border-collapse">
-                        <thead className="bg-slate-50 dark:bg-zinc-900/40 border-b border-slate-200 dark:border-zinc-800/60">
-                            <tr>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Asset</th>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Date</th>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Side</th>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Size</th>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Entry</th>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Margin</th>
-                                {(activeTab === 'open' || activeTab === 'closed') && <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500 text-right">PnL</th>}
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/50">
+                    <>
+                        {/* ============================== */}
+                        {/* VUE MOBILE (Cartes List)         */}
+                        {/* ============================== */}
+                        <div className="flex flex-col md:hidden divide-y divide-slate-100 dark:divide-zinc-800/50">
                             {currentData.map(trade => (
-                                <tr key={trade.id} className="hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors">
-                                    <td className="px-6 py-3 font-semibold text-[11px] text-slate-800 dark:text-zinc-200 flex items-center gap-2">
-                                        <AssetIcon assetId={trade.assetId} isDark={isDark} size="14px" />
-                                        {getDisplaySymbol(trade.assetId)}
-                                    </td>
-                                    <td className="px-6 py-3 text-[11px] font-mono text-slate-500 dark:text-zinc-500">
-                                        {safeFormatDate(trade.openTimestamp)}
-                                    </td>
-                                    <td className="px-6 py-3 text-[11px] font-bold"><span className={trade.isLong ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}>{trade.isLong ? 'LONG' : 'SHORT'}</span> <span className="text-slate-400 dark:text-zinc-600">x{trade.leverage}</span></td>
-                                    <td className="px-6 py-3 text-[11px] font-mono text-slate-700 dark:text-zinc-300">{trade.displaySize}</td>
-                                    <td className="px-6 py-3 text-[11px] font-mono text-slate-700 dark:text-zinc-300">{formatUSDExact(formatE6(trade.openPrice))}</td>
-                                    <td className="px-6 py-3 text-[11px] font-mono text-slate-700 dark:text-zinc-300">{formatUSDExact(formatE6(trade.marginUsdc))}</td>
-                                    {(activeTab === 'open' || activeTab === 'closed') && (
-                                        <td className={`px-6 py-3 text-[11px] font-mono font-bold text-right ${trade.pnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
-                                            {trade.pnl >= 0 ? '+' : ''}{formatUSDExact(trade.pnl)}
-                                        </td>
-                                    )}
-                                </tr>
+                                <div key={trade.id} className="p-4 flex flex-col gap-3 hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors">
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex items-center gap-2 font-semibold text-[13px] text-slate-800 dark:text-zinc-200">
+                                            <AssetIcon assetId={trade.assetId} isDark={isDark} size="16px" />
+                                            {getDisplaySymbol(trade.assetId)}
+                                        </div>
+                                        <div className="text-[11px] font-bold">
+                                            <span className={trade.isLong ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}>
+                                                {trade.isLong ? 'LONG' : 'SHORT'}
+                                            </span> 
+                                            <span className="text-slate-400 dark:text-zinc-600 ml-1">x{trade.leverage}</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex justify-between items-end">
+                                        <div className="flex flex-col gap-1">
+                                            <div className="flex flex-col">
+                                                <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">Entry / Size</span>
+                                                <span className="font-mono text-xs text-slate-700 dark:text-zinc-300">
+                                                    {formatUSDExact(formatE6(trade.openPrice))} / {trade.displaySize}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        {(activeTab === 'open' || activeTab === 'closed') && (
+                                            <div className="flex flex-col items-end">
+                                                <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">PnL</span>
+                                                <span className={`font-mono font-bold text-sm ${trade.pnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
+                                                    {trade.pnl >= 0 ? '+' : ''}{formatUSDExact(trade.pnl)}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="flex justify-between items-center mt-1 pt-2 border-t border-slate-100 dark:border-zinc-800/50">
+                                        <span className="text-[10px] font-mono text-slate-400 dark:text-zinc-500">{safeFormatDate(trade.openTimestamp)}</span>
+                                        <span className="text-[10px] font-mono text-slate-500 dark:text-zinc-500">Margin: {formatUSDExact(formatE6(trade.marginUsdc))}</span>
+                                    </div>
+                                </div>
                             ))}
-                        </tbody>
-                    </table>
+                        </div>
+
+                        {/* ============================== */}
+                        {/* VUE DESKTOP (Tableau classique)*/}
+                        {/* ============================== */}
+                        <div className="hidden md:block overflow-x-auto w-full">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-slate-50 dark:bg-zinc-900/40 border-b border-slate-200 dark:border-zinc-800/60">
+                                    <tr>
+                                        <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Asset</th>
+                                        <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Date</th>
+                                        <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Side</th>
+                                        <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Size</th>
+                                        <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Entry</th>
+                                        <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Margin</th>
+                                        {(activeTab === 'open' || activeTab === 'closed') && <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500 text-right">PnL</th>}
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/50">
+                                    {currentData.map(trade => (
+                                        <tr key={trade.id} className="hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors">
+                                            <td className="px-6 py-3 font-semibold text-[11px] text-slate-800 dark:text-zinc-200 flex items-center gap-2">
+                                                <AssetIcon assetId={trade.assetId} isDark={isDark} size="14px" />
+                                                {getDisplaySymbol(trade.assetId)}
+                                            </td>
+                                            <td className="px-6 py-3 text-[11px] font-mono text-slate-500 dark:text-zinc-500">
+                                                {safeFormatDate(trade.openTimestamp)}
+                                            </td>
+                                            <td className="px-6 py-3 text-[11px] font-bold"><span className={trade.isLong ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}>{trade.isLong ? 'LONG' : 'SHORT'}</span> <span className="text-slate-400 dark:text-zinc-600">x{trade.leverage}</span></td>
+                                            <td className="px-6 py-3 text-[11px] font-mono text-slate-700 dark:text-zinc-300">{trade.displaySize}</td>
+                                            <td className="px-6 py-3 text-[11px] font-mono text-slate-700 dark:text-zinc-300">{formatUSDExact(formatE6(trade.openPrice))}</td>
+                                            <td className="px-6 py-3 text-[11px] font-mono text-slate-700 dark:text-zinc-300">{formatUSDExact(formatE6(trade.marginUsdc))}</td>
+                                            {(activeTab === 'open' || activeTab === 'closed') && (
+                                                <td className={`px-6 py-3 text-[11px] font-mono font-bold text-right ${trade.pnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
+                                                    {trade.pnl >= 0 ? '+' : ''}{formatUSDExact(trade.pnl)}
+                                                </td>
+                                            )}
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
                 )}
             </div>
         </div>
