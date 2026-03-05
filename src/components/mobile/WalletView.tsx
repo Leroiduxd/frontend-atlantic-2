@@ -1,7 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { useAccount, useWriteContract, useReadContracts, usePublicClient } from 'wagmi';
+import { 
+  useAccount, 
+  useWriteContract, 
+  useReadContracts, 
+  usePublicClient,
+  useChainId,       // <-- Ajouté
+  useSwitchChain    // <-- Ajouté
+} from 'wagmi';
 import { useFaucet } from '@/hooks/useFaucet';
 import { useToast } from '@/hooks/use-toast';
 import { Wallet, ArrowDownToLine, ArrowUpFromLine, Droplet, CheckCircle, Loader2, Info } from 'lucide-react';
@@ -10,9 +17,12 @@ import { Input } from '@/components/ui/input';
 import { ConnectButton } from '@rainbow-me/rainbowkit'; 
 import { parseUnits, formatUnits } from 'viem';
 
-// --- ADRESSES (À CHANGER AVEC LES TIENNES) ---
+// --- ADRESSES ---
 const VAULT_ADDRESS = '0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0';
-const TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b'; // ⚠️ REMPLACE PAR L'ADRESSE DE TON TOKEN USDC/TUSD ERC20 ⚠️
+const TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b'; 
+
+// --- CIBLE RÉSEAU ---
+const TARGET_CHAIN_ID = 688689; // <-- ID de ta chaîne cible
 
 // --- ABIs ---
 const VAULT_ABI = [
@@ -30,6 +40,8 @@ const ERC20_ABI = [
 
 export const WalletView = () => {
   const { address, isConnected } = useAccount();
+  const chainId = useChainId(); // <-- Récupère l'ID actuel
+  const { switchChain } = useSwitchChain(); // <-- Fonction pour changer de réseau
   const { toast } = useToast();
   
   const { writeContractAsync } = useWriteContract();
@@ -48,7 +60,7 @@ export const WalletView = () => {
     query: { enabled: !!address, refetchInterval: 3000 }
   });
 
-  // Extraction et formatage (On assume 6 décimales pour le stablecoin)
+  // Extraction et formatage
   const vaultTotalDisplay = chainData?.[0]?.status === 'success' ? Number(formatUnits(chainData[0].result as bigint, 6)) : 0;
   const vaultAvailableDisplay = chainData?.[1]?.status === 'success' ? Number(formatUnits(chainData[1].result as bigint, 6)) : 0;
   const vaultLockedDisplay = vaultTotalDisplay - vaultAvailableDisplay;
@@ -73,8 +85,10 @@ export const WalletView = () => {
     setAmount(mode === 'withdraw' ? maxWithdraw.toFixed(2) : maxDeposit.toFixed(2)); 
   };
 
-  // --- LOGIQUE DE TRANSACTION (APPROVE + DEPOSIT / WITHDRAW) ---
+  // --- LOGIQUE DE TRANSACTION ---
   const handleTransaction = async () => {
+    // Sécurité supplémentaire : on ne fait rien si mauvais réseau
+    if (chainId !== TARGET_CHAIN_ID) return;
     if (!amount || parseFloat(amount) <= 0) return;
     
     try {
@@ -82,7 +96,6 @@ export const WalletView = () => {
       let hash;
 
       if (mode === 'deposit') {
-        // 1. Vérification de l'allowance
         if (tokenAllowance < amount6) {
             setIsApproving(true);
             toast({ title: "Approval Required", description: "Please approve the token first." });
@@ -91,7 +104,7 @@ export const WalletView = () => {
                 address: TOKEN_ADDRESS, 
                 abi: ERC20_ABI, 
                 functionName: 'approve', 
-                args: [VAULT_ADDRESS, amount6], // On approve le montant exact (ou utiliser la valeur MAX (2^256-1) si tu préfères)
+                args: [VAULT_ADDRESS, amount6], 
             });
 
             if (publicClient) await publicClient.waitForTransactionReceipt({ hash: approveHash });
@@ -99,13 +112,11 @@ export const WalletView = () => {
             setIsApproving(false);
         }
 
-        // 2. Dépôt
         setIsTransacting(true);
         hash = await writeContractAsync({
             address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'traderDeposit', args: [amount6],
         });
       } else {
-        // 3. Retrait
         setIsTransacting(true);
         hash = await writeContractAsync({
             address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'traderWithdraw', args: [amount6],
@@ -132,6 +143,12 @@ export const WalletView = () => {
   };
 
   const handleFaucetClaim = async () => {
+      // Sécurité pour le faucet aussi
+      if (chainId !== TARGET_CHAIN_ID) {
+         switchChain({ chainId: TARGET_CHAIN_ID });
+         return;
+      }
+
       if (isClaiming) return;
       try {
           await claimTestTokens();
@@ -165,10 +182,19 @@ export const WalletView = () => {
   // --- ÉTATS DES BOUTONS ---
   const needsApproval = mode === 'deposit' && amount && parseFloat(amount) > 0 && tokenAllowance < parseUnits(amount, 6);
   const buttonText = isApproving ? 'Approving...' : isTransacting ? 'Confirming...' : needsApproval ? 'Approve & Deposit' : mode === 'deposit' ? 'Confirm Deposit' : 'Confirm Withdraw';
+  const isWrongNetwork = chainId !== TARGET_CHAIN_ID;
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-black font-sans overflow-y-auto pb-24 transition-colors [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
       
+      {/* BANNIÈRE MAUVAIS RÉSEAU */}
+      {isWrongNetwork && (
+        <div className="bg-red-500/10 border-b border-red-500/20 text-red-600 dark:text-red-500 text-[11px] py-2 px-4 font-bold text-center uppercase tracking-widest flex items-center justify-center gap-2">
+          <Info className="w-3.5 h-3.5" />
+          Wrong Network: Switch to Chain {TARGET_CHAIN_ID}
+        </div>
+      )}
+
       {/* 1. BALANCE CARD (Vault) */}
       <div className="p-6 bg-slate-50 dark:bg-[#0a0a0a] border-b border-slate-200 dark:border-zinc-800/60 flex flex-col items-center justify-center text-center">
         <span className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest mb-1">Vault Equity</span>
@@ -237,25 +263,37 @@ export const WalletView = () => {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0.00"
-                className="flex-1 h-full bg-transparent border-none text-slate-900 dark:text-white text-lg font-mono focus-visible:ring-0 px-0 [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                disabled={isWrongNetwork}
+                className="flex-1 h-full bg-transparent border-none text-slate-900 dark:text-white text-lg font-mono focus-visible:ring-0 px-0 [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50"
               />
               <button 
                 onClick={handleSetMax}
-                className="text-[10px] font-bold text-blue-600 dark:text-blue-500 bg-blue-100 dark:bg-blue-500/10 hover:bg-blue-200 dark:hover:bg-blue-500/20 px-3 py-1.5 rounded-[2px] transition-colors uppercase tracking-widest"
+                disabled={isWrongNetwork}
+                className="text-[10px] font-bold text-blue-600 dark:text-blue-500 bg-blue-100 dark:bg-blue-500/10 hover:bg-blue-200 dark:hover:bg-blue-500/20 disabled:opacity-50 px-3 py-1.5 rounded-[2px] transition-colors uppercase tracking-widest"
               >
                 Max
               </button>
             </div>
           </div>
 
-          <Button 
-            onClick={handleTransaction}
-            disabled={isTransacting || isApproving || !amount || parseFloat(amount) <= 0 || (mode === 'deposit' && parseFloat(amount) > walletBalanceDisplay) || (mode === 'withdraw' && parseFloat(amount) > maxWithdraw)}
-            className={`w-full h-12 text-sm font-bold shadow-none transition-transform active:scale-[0.98] rounded-[4px] uppercase tracking-wider
-              ${needsApproval ? 'bg-amber-500 hover:bg-amber-600 text-black' : 'bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black'}`}
-          >
-            {(isTransacting || isApproving) ? <Loader2 className="animate-spin w-4 h-4" /> : buttonText}
-          </Button>
+          {/* CHANGEMENT DYNAMIQUE DU BOUTON ICI */}
+          {isWrongNetwork ? (
+             <Button 
+              onClick={() => switchChain({ chainId: TARGET_CHAIN_ID })}
+              className="w-full h-12 text-sm font-bold bg-red-600 hover:bg-red-700 text-white shadow-none transition-transform active:scale-[0.98] rounded-[4px] uppercase tracking-wider"
+             >
+              Switch Network
+             </Button>
+          ) : (
+             <Button 
+               onClick={handleTransaction}
+               disabled={isTransacting || isApproving || !amount || parseFloat(amount) <= 0 || (mode === 'deposit' && parseFloat(amount) > walletBalanceDisplay) || (mode === 'withdraw' && parseFloat(amount) > maxWithdraw)}
+               className={`w-full h-12 text-sm font-bold shadow-none transition-transform active:scale-[0.98] rounded-[4px] uppercase tracking-wider
+                 ${needsApproval ? 'bg-amber-500 hover:bg-amber-600 text-black' : 'bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black'}`}
+             >
+               {(isTransacting || isApproving) ? <Loader2 className="animate-spin w-4 h-4" /> : buttonText}
+             </Button>
+          )}
         </div>
       </div>
 
@@ -274,9 +312,9 @@ export const WalletView = () => {
                 onClick={handleFaucetClaim}
                 disabled={hasClaimed || isClaiming}
                 variant="outline"
-                className="w-full text-xs font-bold border-blue-200 dark:border-blue-900/50 bg-white dark:bg-black text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors h-10"
+                className={`w-full text-xs font-bold transition-colors h-10 ${isWrongNetwork ? 'border-red-200 text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/10 dark:border-red-900/50' : 'border-blue-200 dark:border-blue-900/50 bg-white dark:bg-black text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20'}`}
             >
-                {isClaiming ? <Loader2 className="w-4 h-4 animate-spin" /> : hasClaimed ? (
+                {isWrongNetwork ? 'Switch Network to Claim' : isClaiming ? <Loader2 className="w-4 h-4 animate-spin" /> : hasClaimed ? (
                     <><CheckCircle className="w-4 h-4 mr-2" /> Already Claimed Today</>
                 ) : (
                     'Claim 1,000 USDT'
