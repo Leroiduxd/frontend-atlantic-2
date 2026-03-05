@@ -28,7 +28,7 @@ const PAIR_MAP: { [key: number]: string } = {
 // Valeur d'actif réel pour 1 Lot
 const ASSET_LOT_SIZES: Record<number, number> = {
     0: 0.01,    // btc_usdt
-    1: 0.1,     // eth_usdt
+    1: 0.01,     // eth_usdt
     2: 1,       // link_usdt
     3: 1000,    // doge_usdt
     5: 1,       // avax_usdt
