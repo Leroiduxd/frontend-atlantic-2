@@ -14,22 +14,46 @@ export const useChartData = (pair: number = 0, interval: string = "300") => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchData = async () => {
       try {
+        // On remet le loading à true à chaque changement de paire
+        setLoading(true); 
+        
         const response = await fetch(`https://backend.brokex.trade/history?pair=${pair}&interval=${interval}`);
         const result = await response.json();
-        setData(result);
+        
+        if (isMounted) {
+          // 1. ON INTERCEPTE L'ERREUR SUPRA ICI
+          if (result && result.error) {
+            console.warn("L'API a renvoyé une erreur (ex: Supra) :", result.error);
+            setData([]); // On donne un tableau vide pour empêcher le crash !
+          } 
+          // 2. Si c'est bien un tableau (crypto), on l'enregistre
+          else if (Array.isArray(result)) {
+            setData(result);
+          } 
+          // 3. Sécurité supplémentaire si c'est autre chose
+          else {
+            setData([]);
+          }
+        }
       } catch (error) {
-        console.error('Error fetching chart data:', error);
+        console.error('Erreur lors du fetch des données:', error);
+        if (isMounted) setData([]); // En cas de crash réseau, on met un tableau vide
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
     fetchData();
     const intervalId = setInterval(fetchData, 30000);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
   }, [pair, interval]);
 
   return { data, loading };
