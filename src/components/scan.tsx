@@ -1,14 +1,15 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, TrendingUp, TrendingDown, Wallet, BarChart3, Activity, ArrowLeft, User, Coins, ShieldAlert, FileText } from 'lucide-react';
+import { Search, TrendingUp, TrendingDown, Wallet, BarChart3, Activity, ArrowLeft, User } from 'lucide-react';
 import { useWebSocket, getAssetsByCategory } from '@/hooks/useWebSocket';
 import { BottomBar } from "@/components/BottomBar";
-import { format } from "date-fns";
-
-// NOUVEAUX IMPORTS CORRIGÉS
 import { useTheme } from "next-themes";
 import { AssetIcon } from "@/hooks/useAssetIcon"; 
+
+// --- IMPORTS DES COMPOSANTS EXTERNES ---
+import TraderExplorerView from "@/components/TraderExplorerView";
+import AssetExplorerView from "@/components/AssetExplorerView";
 
 // --- CONSTANTES ---
 const ASSET_LOT_SIZES: Record<number, number> = {
@@ -27,16 +28,15 @@ const PAIR_MAP: { [key: number]: string } = {
   6034:'nike_usd', 6113:'spdia_usd', 6114:'qqqm_usd', 6115:'iwm_usd'
 };
 
-const ASSET_INFO: Record<number, { name: string, symbol: string }> = {
-  0: { name: "BTC/USD", symbol: "₿" }, 1: { name: "ETH/USD", symbol: "Ξ" },
-  10: { name: "SOL/USD", symbol: "S" }, 5500: { name: "XAU/USD", symbol: "Au" },
-};
-
 // --- UTILITAIRES ---
 const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: "compact", maximumFractionDigits: 2 }).format(val);
-const formatUSDExact = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(val);
 const formatCompact = (val: number) => new Intl.NumberFormat('en-US', { notation: "compact", maximumFractionDigits: 2 }).format(val);
 const formatE6 = (val: number) => val / 1_000_000;
+const formatDynamicPrice = (val: number) => {
+    if (val === 0) return "$0.00";
+    const fractionDigits = val >= 10 ? 2 : 5;
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }).format(val);
+};
 
 const getDisplaySymbol = (assetId: number): string => {
     if (PAIR_MAP[assetId]) return PAIR_MAP[assetId].split('_')[0].toUpperCase() + "/USD";
@@ -57,6 +57,9 @@ const timeAgo = (timestamp: number) => {
 // COMPOSANT PRINCIPAL
 // ============================================================================
 export default function Scan() {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+  
   const { data: wsData } = useWebSocket();
   const [currentAssetId, setCurrentAssetId] = useState<number>(0);
   
@@ -145,8 +148,9 @@ export default function Scan() {
                                     navigateToAsset(pair.id);
                                     setShowSuggestions(false);
                                 }}
-                                className="px-4 py-2.5 text-xs font-mono cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-700 dark:text-zinc-300 uppercase transition-colors"
+                                className="flex items-center gap-3 px-4 py-2.5 text-xs font-mono cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-900 text-slate-700 dark:text-zinc-300 uppercase transition-colors"
                             >
+                                <AssetIcon assetId={pair.id} isDark={isDark} size="14px" />
                                 {pair.name}
                             </div>
                         ))}
@@ -181,26 +185,17 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
   const [openTradesStats, setOpenTradesStats] = useState<any[]>([]);
   const [exposures, setExposures] = useState<any>({});
   const [volume24h, setVolume24h] = useState<number | null>(null);
-  
-  const [topTradersVol, setTopTradersVol] = useState<any[]>([]); 
-  const [topTradersPnl, setTopTradersPnl] = useState<any[]>([]); 
-  const [topTradersActive, setTopTradersActive] = useState<any[]>([]); 
-  const [traderTab, setTraderTab] = useState<'vol'|'pnl'|'active'>('vol');
 
   const [latestTrades, setLatestTrades] = useState<any[]>([]);
-
   const [topMarketIndex, setTopMarketIndex] = useState(0);
 
   useEffect(() => {
     const fetchApiData = async () => {
       try {
-        const [tradersRes, tradesRes, expRes, topVolRes, topPnlRes, topActiveRes, volRes, maxIdRes] = await Promise.all([
+        const [tradersRes, tradesRes, expRes, volRes, maxIdRes] = await Promise.all([
           fetch('https://api.brokex.trade/stats/total-traders').catch(() => null),
           fetch('https://api.brokex.trade/stats/open-trades').catch(() => null),
           fetch('https://api.brokex.trade/exposures').catch(() => null),
-          fetch('https://api.brokex.trade/metrics/top/volume?limit=10').catch(() => null),
-          fetch('https://api.brokex.trade/metrics/top/pnl?limit=10').catch(() => null),
-          fetch('https://api.brokex.trade/traders/top/active?limit=10').catch(() => null),
           fetch('https://api.brokex.trade/stats/volume-24h').catch(() => null),
           fetch('https://api.brokex.trade/stats/max-trade-id').catch(() => null)
         ]);
@@ -208,11 +203,6 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
         if (tradersRes) tradersRes.json().then(d => d.success && setTotalTraders(d.totalTraders));
         if (tradesRes) tradesRes.json().then(d => d.success && setOpenTradesStats(d.data));
         if (expRes) expRes.json().then(d => d.success && setExposures(d.data));
-        
-        if (topVolRes) topVolRes.json().then(d => d.success && Array.isArray(d.data) && setTopTradersVol(d.data));
-        if (topPnlRes) topPnlRes.json().then(d => d.success && Array.isArray(d.data) && setTopTradersPnl(d.data));
-        if (topActiveRes) topActiveRes.json().then(d => d.success && Array.isArray(d.data) && setTopTradersActive(d.data));
-        
         if (volRes) volRes.json().then(d => d.success && setVolume24h(d.volume24h));
 
         if (maxIdRes) {
@@ -220,7 +210,7 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
             if (data.success && data.maxId) {
                 const maxId = data.maxId;
                 const tradePromises = [];
-                for (let i = 0; i < 12; i++) {
+                for (let i = 0; i < 15; i++) {
                     if (maxId - i > 0) {
                         tradePromises.push(fetch(`https://api.brokex.trade/trade/${maxId - i}`).then(r => r.json()).catch(() => null));
                     }
@@ -229,7 +219,6 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
                 setLatestTrades(tradesData.filter(t => t && !t.error).sort((a,b) => b.openTimestamp - a.openTimestamp));
             }
         }
-
       } catch (error) { console.error("Erreur API Explorer:", error); }
     };
     fetchApiData();
@@ -278,7 +267,12 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
       }
 
       if (assetLongUSD > 0 || assetShortUSD > 0) {
-        marketsArray.push({ id: assetId, name: exp.name, oiUSD: assetLongUSD + assetShortUSD, price: price });
+        marketsArray.push({ 
+            id: assetId, name: exp.name, oiUSD: assetLongUSD + assetShortUSD, price: price,
+            longsUSD: assetLongUSD, shortsUSD: assetShortUSD,
+            maxLossUSD: formatE6(exp.longMaxLoss) + formatE6(exp.shortMaxLoss),
+            maxProfitUSD: formatE6(exp.longMaxProfit) + formatE6(exp.shortMaxProfit),
+        });
       }
     });
 
@@ -290,7 +284,7 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
     return { 
         longExpUSD, shortExpUSD, longCount, shortCount, totalPositions, 
         avgLev, totalOI, longPercent, shortPercent, globalUnrealizedPnl, 
-        topMarkets: marketsArray.slice(0, 10) 
+        topMarkets: marketsArray // TOUS les marchés sont retournés
     };
   }, [openTradesStats, exposures, currentPrices]);
 
@@ -360,26 +354,28 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
                       </div>
                   </div>
                   <div className="text-right">
-                      <p className="text-slate-900 dark:text-white font-mono text-sm">{formatCurrency(currentTopMarketCarousel.price)}</p>
+                      <p className="text-slate-900 dark:text-white font-mono text-sm">{formatDynamicPrice(currentTopMarketCarousel.price)}</p>
                   </div>
               </div>
           ) : (<p className="text-xs text-slate-500 dark:text-zinc-600 font-mono">Loading data...</p>)}
         </div>
       </div>
 
-      {/* ROW 3: LISTS (3 Colonnes) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* ROW 3: LISTS (1/3 et 2/3) AVEC SCROLL */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[700px]">
         
-        {/* LATEST ORDERS */}
-        <div className="bg-white dark:bg-[#0a0a0a] shadow-sm border border-slate-200 dark:border-zinc-800/60 rounded-lg p-5">
-          <h3 className="text-sm font-semibold mb-5 text-slate-900 dark:text-white tracking-tight">Latest Orders</h3>
-          <div className="space-y-1">
+        {/* LATEST ORDERS (Scrollable) */}
+        <div className="lg:col-span-1 bg-white dark:bg-[#0a0a0a] shadow-sm border border-slate-200 dark:border-zinc-800/60 rounded-lg flex flex-col h-full overflow-hidden">
+          <div className="p-5 border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50 dark:bg-zinc-950/30">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">Latest Orders</h3>
+          </div>
+          <div className="p-2 space-y-1 flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             {latestTrades.map((trade, i) => {
                 const isClose = trade.state === 2 || trade.state === 3;
                 const notionalUsd = formatE6(trade.marginUsdc) * trade.leverage;
                 
                 return (
-                  <div key={trade.id || i} className="flex justify-between items-center py-2.5 hover:bg-slate-50 dark:hover:bg-zinc-900/50 px-3 rounded transition-colors cursor-pointer group" onClick={() => onNavigateTrader(trade.trader)}>
+                  <div key={trade.id || i} className="flex justify-between items-center p-3 hover:bg-slate-50 dark:hover:bg-zinc-900/50 rounded transition-colors cursor-pointer group" onClick={() => onNavigateTrader(trade.trader)}>
                       <div className="flex items-center gap-3">
                           <div className="w-6 h-6 flex items-center justify-center text-slate-400 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-300 transition-colors">
                               <AssetIcon assetId={trade.assetId} isDark={isDark} size="14px" />
@@ -389,7 +385,7 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
                                   {isClose ? 'Close' : 'Open'} <span className="font-bold">{getDisplaySymbol(trade.assetId).replace('/USD', '')}</span> <span className={trade.isLong ? 'text-blue-500' : 'text-red-500'}>{trade.isLong ? 'Long' : 'Short'}</span>
                               </p>
                               <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-mono mt-0.5">
-                                  From {trade.trader.substring(0, 6)}...{trade.trader.substring(trade.trader.length - 4)}
+                                  {trade.trader.substring(0, 6)}...{trade.trader.substring(trade.trader.length - 4)}
                               </p>
                           </div>
                       </div>
@@ -400,420 +396,75 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
                   </div>
                 )
             })}
-            {latestTrades.length === 0 && <p className="text-xs text-slate-500 dark:text-zinc-600 font-mono text-center py-4">No recent orders.</p>}
           </div>
         </div>
 
-        {/* TOP MARKETS */}
-        <div className="bg-white dark:bg-[#0a0a0a] shadow-sm border border-slate-200 dark:border-zinc-800/60 rounded-lg p-5">
-          <h3 className="text-sm font-semibold mb-5 text-slate-900 dark:text-white tracking-tight">Top Markets by Open Interest</h3>
-          <div className="space-y-1">
-            {dashboardStats.topMarkets.slice(0, 8).map((market, i) => (
-              <div key={i} className="flex justify-between items-center py-2.5 hover:bg-slate-50 dark:hover:bg-zinc-900/50 px-3 rounded transition-colors group cursor-pointer" onClick={() => onNavigateAsset(market.id)}>
-                <div className="flex items-center gap-4">
-                  <span className="text-slate-400 dark:text-zinc-600 text-xs font-mono w-4">{i + 1}</span>
-                  <div className="w-6 h-6 rounded bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 flex items-center justify-center">
-                      <AssetIcon assetId={market.id} isDark={isDark} size="14px" />
-                  </div>
-                  <div><p className="text-[11px] font-semibold tracking-tight text-slate-700 dark:text-zinc-200 group-hover:text-black dark:group-hover:text-white transition-colors">{market.name.replace('_', '/').toUpperCase()}</p><p className="text-[10px] text-slate-500 dark:text-zinc-500 font-mono">Price: {formatCurrency(market.price)}</p></div>
-                </div>
-                <div className="text-right"><p className="text-[11px] font-mono text-slate-900 dark:text-white">{formatCurrency(market.oiUSD)}</p><p className="text-[9px] text-slate-400 dark:text-zinc-600 uppercase tracking-widest mt-0.5">Total OI</p></div>
-              </div>
-            ))}
-          </div>
-        </div>
-        
-        {/* TOP TRADERS */}
-        <div className="bg-white dark:bg-[#0a0a0a] shadow-sm border border-slate-200 dark:border-zinc-800/60 rounded-lg overflow-hidden flex flex-col">
-            <div className="flex border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50 dark:bg-zinc-950/30">
-                {[
-                    { id: 'vol', label: 'By Volume' },
-                    { id: 'pnl', label: 'By PnL' },
-                    { id: 'active', label: 'Most Active' }
-                ].map(tab => (
-                    <button key={tab.id} onClick={() => setTraderTab(tab.id as any)} className={`flex-1 py-3 text-xs font-semibold uppercase tracking-wider transition-colors border-b-2 ${traderTab === tab.id ? 'text-slate-900 border-slate-900 dark:text-white dark:border-white bg-white dark:bg-zinc-900/50' : 'text-slate-500 dark:text-zinc-500 border-transparent hover:text-slate-700 dark:hover:text-zinc-300'}`}>
-                        {tab.label}
-                    </button>
-                ))}
+        {/* TOP MARKETS (Scrollable max 15 éléments visibles puis scroll) */}
+        <div className="lg:col-span-2 bg-white dark:bg-[#0a0a0a] shadow-sm border border-slate-200 dark:border-zinc-800/60 rounded-lg overflow-hidden flex flex-col h-full">
+            <div className="p-5 border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50 dark:bg-zinc-950/30">
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">Top Markets by Open Interest</h3>
             </div>
             
-            <div className="p-3 space-y-1 flex-1">
-                {(traderTab === 'vol' ? topTradersVol.slice(0, 8) : traderTab === 'pnl' ? topTradersPnl.slice(0, 8) : topTradersActive.slice(0, 8)).map((trader: any, i) => (
-                    <div key={i} className="flex justify-between items-center py-2.5 hover:bg-slate-50 dark:hover:bg-zinc-900/50 px-3 rounded transition-colors cursor-pointer group" onClick={() => onNavigateTrader(trader.trader)}>
-                        <div className="flex items-center gap-4">
-                            <span className="text-slate-400 dark:text-zinc-600 text-xs font-mono w-4">{i + 1}</span>
-                            <Wallet size={14} className="text-slate-400 dark:text-zinc-500 group-hover:text-slate-600 dark:group-hover:text-zinc-300 transition-colors" />
-                            <div><p className="text-[11px] font-mono text-slate-600 dark:text-zinc-300 group-hover:text-slate-900 dark:group-hover:text-white transition-colors">{trader.trader.substring(0, 6)}...{trader.trader.substring(trader.trader.length - 4)}</p></div>
-                        </div>
-                        <div className="text-right">
-                            {traderTab === 'vol' && <><p className="text-[11px] font-mono text-slate-900 dark:text-white">{formatCurrency(formatE6(trader.totalVolume || 0))}</p><p className="text-[9px] text-slate-400 dark:text-zinc-600 uppercase tracking-widest mt-0.5">Volume</p></>}
-                            {traderTab === 'pnl' && <><p className={`text-[11px] font-mono ${trader.totalPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>{trader.totalPnl >= 0 ? '+' : ''}{formatCurrency(formatE6(trader.totalPnl || 0))}</p><p className="text-[9px] text-slate-400 dark:text-zinc-600 uppercase tracking-widest mt-0.5">Realized PnL</p></>}
-                            {traderTab === 'active' && <><p className="text-[11px] font-mono text-slate-900 dark:text-white">{trader.count} Trades</p><p className="text-[9px] text-slate-400 dark:text-zinc-600 uppercase tracking-widest mt-0.5">Open Count</p></>}
-                        </div>
-                    </div>
-                ))}
+            <div className="overflow-auto flex-1 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                <table className="w-full text-left border-collapse relative">
+                    <thead className="bg-slate-50/90 dark:bg-zinc-900/90 backdrop-blur-md border-b border-slate-200 dark:border-zinc-800/50 sticky top-0 z-10">
+                        <tr>
+                            <th className="px-6 py-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Market</th>
+                            <th className="px-6 py-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Price</th>
+                            <th className="px-6 py-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500 text-center">Long / Short Ratio</th>
+                            <th className="px-6 py-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500 text-right">Margin / LP Locked</th>
+                            <th className="px-6 py-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500 text-right">Total OI</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/50">
+                        {dashboardStats.topMarkets.slice(0, 15).map((market, i) => { // Limitation à 15 éléments
+                            const lPct = market.oiUSD > 0 ? Math.round((market.longsUSD / market.oiUSD) * 100) : 50;
+                            const sPct = market.oiUSD > 0 ? 100 - lPct : 50;
+                            
+                            return (
+                                <tr key={market.id} className="hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors cursor-pointer group" onClick={() => onNavigateAsset(market.id)}>
+                                    <td className="px-6 py-3.5 flex items-center gap-3">
+                                        <span className="text-slate-400 dark:text-zinc-600 text-xs font-mono w-4">#{i + 1}</span>
+                                        <div className="w-8 h-8 rounded bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 flex items-center justify-center">
+                                            <AssetIcon assetId={market.id} isDark={isDark} size="16px" />
+                                        </div>
+                                        <span className="text-xs font-bold tracking-tight text-slate-700 dark:text-zinc-200 group-hover:text-black dark:group-hover:text-white transition-colors">{market.name.replace('_', '/').toUpperCase()}</span>
+                                    </td>
+                                    <td className="px-6 py-3.5 text-[11px] font-mono text-slate-700 dark:text-zinc-300">
+                                        {formatDynamicPrice(market.price)}
+                                    </td>
+                                    <td className="px-6 py-3.5">
+                                        <div className="flex flex-col items-center gap-1 w-full max-w-[120px] mx-auto">
+                                            <div className="w-full flex justify-between text-[9px] font-mono font-bold">
+                                                <span className="text-blue-500">{lPct}%</span><span className="text-red-500">{sPct}%</span>
+                                            </div>
+                                            <div className="w-full h-1.5 rounded-full flex overflow-hidden bg-slate-200 dark:bg-zinc-800">
+                                                <div className="h-full bg-blue-500" style={{ width: `${lPct}%` }}></div>
+                                                <div className="h-full bg-red-500" style={{ width: `${sPct}%` }}></div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-3.5 text-right">
+                                        <p className="text-[11px] font-mono text-slate-900 dark:text-white">{formatCompact(market.maxLossUSD)}</p>
+                                        <p className="text-[9px] font-mono text-slate-400 dark:text-zinc-500 mt-0.5">{formatCompact(market.maxProfitUSD)}</p>
+                                    </td>
+                                    <td className="px-6 py-3.5 text-right">
+                                        <p className="text-[11px] font-mono font-bold text-slate-900 dark:text-white">{formatCurrency(market.oiUSD)}</p>
+                                    </td>
+                                </tr>
+                            )
+                        })}
+                        {dashboardStats.topMarkets.length === 0 && (
+                            <tr><td colSpan={5} className="py-12 text-center text-slate-500 dark:text-zinc-600 font-mono text-xs">No active markets.</td></tr>
+                        )}
+                    </tbody>
+                </table>
             </div>
         </div>
+
       </div>
     </>
   );
-}
-
-// ============================================================================
-// VUE 2 : TRADER EXPLORER
-// ============================================================================
-function TraderExplorerView({ address, wsData }: { address: string, wsData: any }) {
-    const { theme } = useTheme();
-    const isDark = theme === 'dark';
-
-    const [rawTrades, setRawTrades] = useState<any[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState<"open" | "pending" | "closed" | "cancelled">("open");
-    const [traderMetrics, setTraderMetrics] = useState<{pnl: number, vol: number}>({pnl: 0, vol: 0});
-
-    useEffect(() => {
-        const fetchTraderData = async () => {
-            setIsLoading(true);
-            try {
-                fetch(`https://api.brokex.trade/metrics/trader/${address}`).then(r=>r.json()).then(d => {
-                    if(d.success) setTraderMetrics({ pnl: formatE6(d.metrics.totalPnl), vol: formatE6(d.metrics.totalVolume) });
-                }).catch(()=>{});
-
-                const resIds = await fetch(`https://api.brokex.trade/trader/${address}/ids?state=all`);
-                const { ids } = await resIds.json();
-                if (!ids) return;
-                
-                const detailPromises = ids.slice(0, 150).map((id: number) => fetch(`https://api.brokex.trade/trade/${id}`).then(r => r.json()));
-                const trades = await Promise.all(detailPromises);
-                setRawTrades(trades.filter(t => !t.error));
-            } catch (e) { console.error(e); } finally { setIsLoading(false); }
-        };
-        fetchTraderData();
-    }, [address]);
-
-    const { open, pending, closed, cancelled, totalUnrealizedPnl } = useMemo(() => {
-        const o: any[] = []; const p: any[] = []; const c: any[] = []; const ca: any[] = [];
-        let totalUnrealized = 0;
-
-        const getAssetWsPrice = (assetId: number) => {
-            const categories = getAssetsByCategory(wsData);
-            const match = Object.values(categories).flat().find(a => a.id === assetId);
-            return match && match.currentPrice ? parseFloat(match.currentPrice) : 0;
-        };
-
-        rawTrades.forEach((t) => {
-            const assetMultiplier = ASSET_LOT_SIZES[t.assetId] || 1;
-            const size = (t.lotSize - (t.closedLotSize || 0)) * assetMultiplier;
-            const entryP = formatE6(t.openPrice);
-            const wsPrice = getAssetWsPrice(t.assetId);
-
-            let pnl = 0;
-            if (t.state === 1 && wsPrice > 0) {
-                pnl = size * (wsPrice - entryP) * (t.isLong ? 1 : -1);
-                totalUnrealized += pnl; // Somme des PnL ouverts
-            } else if (t.state === 2) {
-                const closeSize = (t.closedLotSize || t.lotSize) * assetMultiplier;
-                pnl = closeSize * (formatE6(t.closePrice) - entryP) * (t.isLong ? 1 : -1);
-            }
-
-            const enriched = { ...t, displaySize: size, pnl, currentPrice: wsPrice };
-
-            if (t.state === 1) o.push(enriched);
-            else if (t.state === 0) p.push(enriched);
-            else if (t.state === 2) c.push(enriched);
-            else if (t.state === 3) ca.push(enriched);
-        });
-
-        const sortByDate = (arr: any[]) => arr.sort((a, b) => b.openTimestamp - a.openTimestamp);
-        return { open: sortByDate(o), pending: sortByDate(p), closed: sortByDate(c), cancelled: sortByDate(ca), totalUnrealizedPnl: totalUnrealized };
-    }, [rawTrades, wsData]);
-
-    const currentData = activeTab === "open" ? open : activeTab === "pending" ? pending : activeTab === "closed" ? closed : cancelled;
-
-    return (
-        <div className="w-full bg-white dark:bg-[#0a0a0a] shadow-sm border border-slate-200 dark:border-zinc-800/60 rounded-xl overflow-hidden min-h-[500px]">
-            {/* EN-TETE TRADER AVEC METRIQUES */}
-            <div className="p-6 border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50 dark:bg-zinc-950/50 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg flex items-center justify-center text-slate-500 dark:text-zinc-400"><User size={24} /></div>
-                    <div>
-                        <h2 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Trader Profile</h2>
-                        <p className="text-sm text-slate-500 dark:text-zinc-500 font-mono mt-1 break-all">{address}</p>
-                    </div>
-                </div>
-                <div className="flex gap-8">
-                    <div>
-                        <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Unrealized PnL</p>
-                        <p className={`text-xl font-mono font-bold ${totalUnrealizedPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
-                            {totalUnrealizedPnl >= 0 ? '+' : ''}{formatUSDExact(totalUnrealizedPnl)}
-                        </p>
-                    </div>
-                    <div>
-                        <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Total Realized PnL</p>
-                        <p className={`text-xl font-mono font-bold ${traderMetrics.pnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
-                            {traderMetrics.pnl >= 0 ? '+' : ''}{formatUSDExact(traderMetrics.pnl)}
-                        </p>
-                    </div>
-                    <div>
-                        <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Total Volume</p>
-                        <p className="text-xl font-mono font-bold text-slate-900 dark:text-white">{formatCurrency(traderMetrics.vol)}</p>
-                    </div>
-                </div>
-            </div>
-
-            {/* STICKY TABS */}
-            <div className="flex border-b border-slate-200 dark:border-zinc-800/60 bg-slate-100 dark:bg-zinc-950/30 sticky top-0 z-10">
-                {[
-                    { id: 'open', label: `Open Positions (${open.length})` },
-                    { id: 'pending', label: `Pending (${pending.length})` },
-                    { id: 'closed', label: `Closed (${closed.length})` },
-                    { id: 'cancelled', label: `Cancelled (${cancelled.length})` }
-                ].map(tab => (
-                    <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`px-5 py-3 text-[11px] font-semibold uppercase tracking-wider transition-colors border-b-2 ${activeTab === tab.id ? 'text-slate-900 border-slate-900 bg-white dark:text-white dark:border-white dark:bg-zinc-900/50' : 'text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-200/50 dark:text-zinc-500 dark:hover:text-zinc-300 dark:hover:bg-zinc-900/30'}`}>
-                        {tab.label}
-                    </button>
-                ))}
-            </div>
-
-            {/* TABLEAU */}
-            <div className="overflow-x-auto">
-                {isLoading ? (
-                    <div className="p-12 text-center text-slate-500 dark:text-zinc-500 font-mono text-sm">Fetching trader history...</div>
-                ) : currentData.length === 0 ? (
-                    <div className="p-12 text-center text-slate-500 dark:text-zinc-600 font-mono text-sm">No trades found in this category.</div>
-                ) : (
-                    <table className="w-full text-left border-collapse">
-                        <thead className="bg-slate-50 dark:bg-zinc-900/40 border-b border-slate-200 dark:border-zinc-800/60">
-                            <tr>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Asset</th>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Date</th>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Side</th>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Size</th>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Entry</th>
-                                <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Margin</th>
-                                {(activeTab === 'open' || activeTab === 'closed') && <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500 text-right">PnL</th>}
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/50">
-                            {currentData.map(trade => (
-                                <tr key={trade.id} className="hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors">
-                                    <td className="px-6 py-3 font-semibold text-[11px] text-slate-800 dark:text-zinc-200 flex items-center gap-2">
-                                        <AssetIcon assetId={trade.assetId} isDark={isDark} size="14px" />
-                                        {getDisplaySymbol(trade.assetId)}
-                                    </td>
-                                    <td className="px-6 py-3 text-[11px] font-mono text-slate-500 dark:text-zinc-500">{format(new Date(trade.openTimestamp * 1000), "MMM dd, HH:mm")}</td>
-                                    <td className="px-6 py-3 text-[11px] font-bold"><span className={trade.isLong ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}>{trade.isLong ? 'LONG' : 'SHORT'}</span> <span className="text-slate-400 dark:text-zinc-600">x{trade.leverage}</span></td>
-                                    <td className="px-6 py-3 text-[11px] font-mono text-slate-700 dark:text-zinc-300">{trade.displaySize}</td>
-                                    <td className="px-6 py-3 text-[11px] font-mono text-slate-700 dark:text-zinc-300">{formatUSDExact(formatE6(trade.openPrice))}</td>
-                                    <td className="px-6 py-3 text-[11px] font-mono text-slate-700 dark:text-zinc-300">{formatUSDExact(formatE6(trade.marginUsdc))}</td>
-                                    {(activeTab === 'open' || activeTab === 'closed') && (
-                                        <td className={`px-6 py-3 text-[11px] font-mono font-bold text-right ${trade.pnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
-                                            {trade.pnl >= 0 ? '+' : ''}{formatUSDExact(trade.pnl)}
-                                        </td>
-                                    )}
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                )}
-            </div>
-        </div>
-    );
-}
-
-// ============================================================================
-// VUE 3 : ASSET EXPLORER (Sans Background coloré)
-// ============================================================================
-function AssetExplorerView({ assetId, wsData }: { assetId: number, wsData: any }) {
-    const { theme } = useTheme();
-    const isDark = theme === 'dark';
-
-    const [stats, setStats] = useState<any>(null);
-    const [exposure, setExposure] = useState<any>(null);
-    const [isLoading, setIsLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchAssetData = async () => {
-            setIsLoading(true);
-            try {
-                const [tradesRes, expRes] = await Promise.all([
-                    fetch('https://api.brokex.trade/stats/open-trades'),
-                    fetch('https://api.brokex.trade/exposures')
-                ]);
-                const tData = await tradesRes.json();
-                const eData = await expRes.json();
-                
-                if (tData.success) {
-                    setStats({
-                        long: tData.data.find((d:any) => d.assetId === assetId && d.isLong === 1) || { openCount: 0, avgLeverage: 0 },
-                        short: tData.data.find((d:any) => d.assetId === assetId && d.isLong === 0) || { openCount: 0, avgLeverage: 0 }
-                    });
-                }
-                if (eData.success && eData.data[assetId]) {
-                    setExposure(eData.data[assetId]);
-                } else {
-                    setExposure({ longLots: 0, shortLots: 0, longValueSum: 0, shortValueSum: 0, longMaxProfit: 0, shortMaxProfit: 0, longMaxLoss: 0, shortMaxLoss: 0 });
-                }
-            } catch (e) { console.error(e); } finally { setIsLoading(false); }
-        };
-        fetchAssetData();
-    }, [assetId]);
-
-    const metrics = useMemo(() => {
-        if (!exposure || !stats) return null;
-        
-        const lotSize = ASSET_LOT_SIZES[assetId] || 1;
-        const longLots = Number(exposure.longLots) || 0;
-        const shortLots = Number(exposure.shortLots) || 0;
-
-        const avgLongPrice = longLots > 0 ? (formatE6(exposure.longValueSum) / (longLots * lotSize)) : 0;
-        const avgShortPrice = shortLots > 0 ? (formatE6(exposure.shortValueSum) / (shortLots * lotSize)) : 0;
-
-        const categories = getAssetsByCategory(wsData);
-        const match = Object.values(categories).flat().find(a => a.id === assetId);
-        const currentPrice = match && match.currentPrice ? parseFloat(match.currentPrice) : 0;
-
-        const longPnl = longLots > 0 ? (currentPrice - avgLongPrice) * (longLots * lotSize) : 0;
-        const shortPnl = shortLots > 0 ? (avgShortPrice - currentPrice) * (shortLots * lotSize) : 0;
-
-        const totalLots = longLots + shortLots;
-        const longLotsPercent = totalLots > 0 ? (longLots / totalLots) * 100 : 50;
-        const shortLotsPercent = totalLots > 0 ? (shortLots / totalLots) * 100 : 50;
-
-        return { 
-            avgLongPrice, avgShortPrice, currentPrice, longPnl, shortPnl, 
-            totalPnl: longPnl + shortPnl, longLots, shortLots, longLotsPercent, shortLotsPercent 
-        };
-    }, [exposure, stats, wsData, assetId]);
-
-    if (isLoading) return <div className="p-12 text-center text-slate-500 font-mono text-sm w-full">Loading market data...</div>;
-    if (!exposure || (!exposure.longLots && !exposure.shortLots)) return <div className="p-12 text-center text-slate-500 font-mono text-sm w-full">No active exposure for this asset.</div>;
-
-    const symbol = getDisplaySymbol(assetId);
-
-    return (
-        <div className="w-full bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-zinc-800/60 rounded-xl overflow-hidden shadow-sm">
-            {/* EN-TETE ACTIF */}
-            <div className="p-8 border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50 dark:bg-zinc-950/50 flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl flex items-center justify-center text-slate-600 dark:text-zinc-300 font-bold text-xl">
-                        <AssetIcon assetId={assetId} isDark={isDark} size="28px" />
-                    </div>
-                    <div>
-                        <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{symbol} Market Data</h2>
-                        <p className="text-sm text-slate-500 dark:text-zinc-500 font-mono mt-1">Real-time exposure and global PnL analysis.</p>
-                    </div>
-                </div>
-                <div className="text-right">
-                    <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Mark Price</p>
-                    <p className="text-2xl font-mono font-bold text-slate-900 dark:text-white">{metrics?.currentPrice ? formatUSDExact(metrics.currentPrice) : '---'}</p>
-                </div>
-            </div>
-
-            {/* RÉSUMÉ GLOBAL (Lots & PnL) */}
-            <div className="p-6 border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50/50 dark:bg-zinc-950/20">
-                <h3 className="text-sm font-semibold mb-4 text-slate-900 dark:text-white">Market Summary</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                    <div>
-                        <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Global Unrealized PnL</p>
-                        <p className={`text-2xl font-mono font-bold ${metrics!.totalPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
-                            {metrics!.totalPnl >= 0 ? '+' : ''}{formatUSDExact(metrics!.totalPnl)}
-                        </p>
-                    </div>
-                    <div className="col-span-2 flex flex-col justify-center">
-                        <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-2 flex justify-between">
-                            <span>Long Exposure: {metrics!.longLots} Lots</span>
-                            <span>Short Exposure: {metrics!.shortLots} Lots</span>
-                        </p>
-                        <div className="w-full h-2.5 bg-slate-200 dark:bg-zinc-900 rounded-full flex overflow-hidden">
-                            <div className="h-full bg-blue-500" style={{ width: `${metrics!.longLotsPercent}%` }}></div>
-                            <div className="h-full bg-red-500" style={{ width: `${metrics!.shortLotsPercent}%` }}></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-200 dark:divide-zinc-800/60">
-                {/* LONG COLUMN */}
-                <div className="p-8 space-y-8 bg-transparent">
-                    <div className="flex items-center gap-3">
-                        <TrendingUp className="text-blue-600 dark:text-blue-500" size={24} />
-                        <h3 className="text-xl font-bold text-slate-900 dark:text-white">Long Data</h3>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-6">
-                        <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Open Positions</p>
-                            <p className="text-lg font-mono text-slate-900 dark:text-white">{stats.long.openCount} <span className="text-xs text-slate-400 dark:text-zinc-500">(~{stats.long.avgLeverage.toFixed(1)}x avg)</span></p>
-                        </div>
-                        <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Lots Exposure</p>
-                            <p className="text-lg font-mono text-slate-900 dark:text-white">{metrics!.longLots} Lots</p>
-                        </div>
-                        <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Avg Entry Price</p>
-                            <p className="text-lg font-mono text-slate-900 dark:text-white">{formatUSDExact(metrics!.avgLongPrice)}</p>
-                        </div>
-                        <div></div> {/* Espacement */}
-                        <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><ShieldAlert size={12}/> LP Locked (Max Profit)</p>
-                            <p className="text-lg font-mono text-slate-900 dark:text-white">{formatCurrency(formatE6(exposure.longMaxProfit))}</p>
-                        </div>
-                        <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><ShieldAlert size={12}/> Total Margin (Max Loss)</p>
-                            <p className="text-lg font-mono text-slate-900 dark:text-white">{formatCurrency(formatE6(exposure.longMaxLoss))}</p>
-                        </div>
-                    </div>
-
-                    <div className="p-5 bg-slate-50 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800 rounded-lg">
-                        <p className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider mb-1">Longs Unrealized PnL</p>
-                        <p className={`text-xl font-mono font-bold ${metrics!.longPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
-                            {metrics!.longPnl >= 0 ? '+' : ''}{formatUSDExact(metrics!.longPnl)}
-                        </p>
-                    </div>
-                </div>
-
-                {/* SHORT COLUMN */}
-                <div className="p-8 space-y-8 bg-transparent">
-                    <div className="flex items-center gap-3">
-                        <TrendingDown className="text-red-600 dark:text-red-500" size={24} />
-                        <h3 className="text-xl font-bold text-slate-900 dark:text-white">Short Data</h3>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-6">
-                        <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Open Positions</p>
-                            <p className="text-lg font-mono text-slate-900 dark:text-white">{stats.short.openCount} <span className="text-xs text-slate-400 dark:text-zinc-500">(~{stats.short.avgLeverage.toFixed(1)}x avg)</span></p>
-                        </div>
-                        <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Lots Exposure</p>
-                            <p className="text-lg font-mono text-slate-900 dark:text-white">{metrics!.shortLots} Lots</p>
-                        </div>
-                        <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Avg Entry Price</p>
-                            <p className="text-lg font-mono text-slate-900 dark:text-white">{formatUSDExact(metrics!.avgShortPrice)}</p>
-                        </div>
-                        <div></div> {/* Espacement */}
-                        <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><ShieldAlert size={12}/> LP Locked (Max Profit)</p>
-                            <p className="text-lg font-mono text-slate-900 dark:text-white">{formatCurrency(formatE6(exposure.shortMaxProfit))}</p>
-                        </div>
-                        <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><ShieldAlert size={12}/> Total Margin (Max Loss)</p>
-                            <p className="text-lg font-mono text-slate-900 dark:text-white">{formatCurrency(formatE6(exposure.shortMaxLoss))}</p>
-                        </div>
-                    </div>
-
-                    <div className="p-5 bg-slate-50 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800 rounded-lg">
-                        <p className="text-[10px] text-red-600 dark:text-red-400 font-bold uppercase tracking-wider mb-1">Shorts Unrealized PnL</p>
-                        <p className={`text-xl font-mono font-bold ${metrics!.shortPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
-                            {metrics!.shortPnl >= 0 ? '+' : ''}{formatUSDExact(metrics!.shortPnl)}
-                        </p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
 }
 
 // Composant utilitaire
