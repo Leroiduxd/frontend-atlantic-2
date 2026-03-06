@@ -1,25 +1,25 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { 
     useAccount, 
     useReadContract, 
     useSimulateContract, 
     useWriteContract, 
     useBalance,
-    useConfig,
-    usePublicClient // 🛑 IMPORT NÉCESSAIRE
+    usePublicClient
 } from 'wagmi';
-import { parseUnits, formatUnits, maxUint256 } from 'viem'; 
-import { useQueryClient } from '@tanstack/react-query'; // 🛑 IMPORT NÉCESSAIRE
+import { parseUnits, maxUint256 } from 'viem'; 
+import { useQueryClient } from '@tanstack/react-query';
 
 // --- ADRESSES ET ABIs ---
 const FAUCET_ADDRESS = '0x7cBC6673db27CE4B055C1004e92A2A04E446771b';
 const ERC20_TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b';
 const VAULT_ADDRESS = '0xFebf0c9421f70041FbD3410ECE47D080f03fC7EE';
 
-// ABI du Faucet
+// ABI du Faucet (MISE À JOUR AVEC nextEligibleAt)
 const FAUCET_ABI = [
   { "inputs": [], "name": "claim", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
   { "inputs": [ { "internalType": "address", "name": "", "type": "address" } ], "name": "hasClaimed", "outputs": [ { "internalType": "bool", "name": "", "type": "bool" } ], "stateMutability": "view", "type": "function" },
+  { "inputs": [ { "internalType": "address", "name": "user", "type": "address" } ], "name": "nextEligibleAt", "outputs": [ { "internalType": "uint256", "name": "", "type": "uint256" } ], "stateMutability": "view", "type": "function" },
 ] as const;
 
 // ABI de l'ERC20
@@ -32,19 +32,16 @@ const ERC20_ABI = [
 const REFETCH_DELAY_MS = 5000;
 const SUFFICIENT_APPROVAL_THRESHOLD = parseUnits('10000', 6); 
 
-
 export const useFaucet = () => {
   const { address, isConnected } = useAccount();
   const { writeContractAsync } = useWriteContract();
   
-  // 🛑 CORRECTION : Utiliser les hooks dédiés pour les clients
   const publicClient = usePublicClient();
   const queryClient = useQueryClient();
 
   // --- Helpers ---
   const refetch = useCallback(() => {
     if (!queryClient || !address) return;
-    // 🛑 CORRECTION : Utiliser l'instance de queryClient
     queryClient.invalidateQueries();
   }, [queryClient, address]);
 
@@ -54,7 +51,7 @@ export const useFaucet = () => {
     pollingInterval: 10000, 
   }), [isConnected, address]);
 
-  // --- Lecture des données (Statut, Solde, Approbation) ---
+  // --- Lecture des données (Statut, Prochaine éligibilité, Solde, Approbation) ---
 
   // 1. hasClaimed
   const { data: hasClaimedData, isLoading: isLoadingClaimStatus } = useReadContract({
@@ -65,6 +62,16 @@ export const useFaucet = () => {
     query: readQueryOptions,
   });
   const hasClaimed = hasClaimedData ?? false;
+
+  // 1b. nextEligibleAt (NOUVEAU)
+  const { data: nextEligibleAtData } = useReadContract({
+    address: FAUCET_ADDRESS,
+    abi: FAUCET_ABI,
+    functionName: 'nextEligibleAt',
+    args: [address as `0x${string}`],
+    query: readQueryOptions,
+  });
+  const nextEligibleAt = nextEligibleAtData ? Number(nextEligibleAtData) : null;
   
   // 2. Token Balance
   const { data: balanceData } = useBalance({
@@ -92,9 +99,7 @@ export const useFaucet = () => {
     return allowanceData >= SUFFICIENT_APPROVAL_THRESHOLD;
   }, [allowanceData]);
 
-
   // --- Logique d'Écriture : CLAIM ---
-
   const { data: claimSimulate } = useSimulateContract({
     address: FAUCET_ADDRESS,
     abi: FAUCET_ABI,
@@ -116,7 +121,6 @@ export const useFaucet = () => {
     try {
         const hash = await writeContractAsync(claimSimulate.request);
         
-        // 🛑 CORRECTION : Utiliser l'instance de publicClient
         if (publicClient) {
           await publicClient.waitForTransactionReceipt({ hash });
         }
@@ -129,7 +133,6 @@ export const useFaucet = () => {
         setIsClaiming(false);
     }
   }, [claimSimulate?.request, writeContractAsync, refetch, publicClient]);
-
 
   // --- Logique d'Écriture : APPROVE (Infinie) ---
   const infiniteApprovalAmount = maxUint256; 
@@ -156,7 +159,6 @@ export const useFaucet = () => {
     try {
         const hash = await writeContractAsync(approveSimulate.request);
         
-        // 🛑 CORRECTION : Utiliser l'instance de publicClient
         if (publicClient) {
           await publicClient.waitForTransactionReceipt({ hash });
         }
@@ -168,11 +170,11 @@ export const useFaucet = () => {
     } finally {
         setIsApproving(false);
     }
-  }, [approveSimulate?.request, writeContractAsync, refetch, publicClient, isApproved]);
-
+  }, [approveSimulate?.request, writeContractAsync, refetch, publicClient]);
 
   return {
     hasClaimed,
+    nextEligibleAt, // Expose la nouvelle valeur pour le chrono
     isLoadingClaimStatus,
     isClaiming,
     claimTestTokens,

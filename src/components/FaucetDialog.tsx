@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Droplet, DollarSign, CheckCircle, Wallet } from 'lucide-react'; 
+import React, { useState, useEffect } from 'react';
+import { Droplet, DollarSign, CheckCircle, Wallet, ArrowDownToLine } from 'lucide-react'; 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useFaucet } from '@/hooks/useFaucet'; 
 import { useToast } from "@/hooks/use-toast";
 import { useAccount } from 'wagmi'; 
 
-// Définitions des props
+// L'IMPORT DE TA MODAL DE DÉPÔT
+import { DepositDialog } from "@/components/DepositDialog";
+
 interface FaucetDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -18,6 +20,8 @@ interface FaucetDialogProps {
 export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, errorContext }) => {
   const { toast } = useToast();
   const { isConnected } = useAccount(); 
+  
+  const [countdown, setCountdown] = useState<string | null>(null);
 
   const { 
     hasClaimed, 
@@ -27,21 +31,35 @@ export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, 
     isApproved, 
     isApproving,
     approveVault,
+    nextEligibleAt 
   } = useFaucet();
 
-  // --- COULEURS DYNAMIQUES (Light Blue / Dark Zinc) ---
-  const primaryColor = 'text-blue-600 dark:text-blue-400';
-  // Succès en bleu au lieu de vert pour le mode clair
-  const successColor = 'text-blue-700 dark:text-blue-300'; 
-  const bgColor = 'bg-blue-50 dark:bg-zinc-900';
+  // --- LOGIQUE DU COMPTEUR ---
+  useEffect(() => {
+    if (!hasClaimed || !nextEligibleAt) {
+        setCountdown(null);
+        return;
+    }
 
-  // Composant BackgroundIcon (Adapté Dark Mode)
-  const BackgroundIcon = ({ Icon, isDone }: { Icon: React.ElementType, isDone: boolean }) => (
-    <div className={`absolute top-1/2 -translate-y-1/2 -left-1/3 flex items-center justify-center transition-opacity duration-300 ${isDone ? 'opacity-20' : 'opacity-10'}`}>
-        <Icon className={`w-[300px] h-[300px] ${isDone ? successColor : primaryColor} z-0`} /> 
-    </div>
-  );
-  
+    const updateTimer = () => {
+        const now = Math.floor(Date.now() / 1000);
+        const diff = Number(nextEligibleAt) - now;
+
+        if (diff <= 0) {
+            setCountdown(null); 
+        } else {
+            const h = Math.floor(diff / 3600).toString().padStart(2, '0');
+            const m = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
+            const s = (diff % 60).toString().padStart(2, '0');
+            setCountdown(`${h}h ${m}m ${s}s`);
+        }
+    };
+
+    updateTimer(); 
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [hasClaimed, nextEligibleAt]);
+
   const showConnectWalletToast = () => {
     toast({ 
         title: "Connection Required", 
@@ -64,116 +82,169 @@ export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, 
     if (!isConnected) return showConnectWalletToast();
     try {
         await approveVault(); 
-        toast({ title: "Approval Successful", description: "Vault approved for infinite TUSD." });
+        toast({ title: "Approval Successful", description: "Vault approved for infinite USDC." });
     } catch (error: any) {
         toast({ title: "Approval Failed", description: error?.shortMessage || error?.message || "Transaction failed.", variant: "destructive" });
     }
   };
 
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Conteneur Principal : Blanc (Light) vs Zinc-950 (Dark) */}
-      <DialogContent className="w-[650px] max-w-none p-0 bg-white dark:bg-zinc-950 shadow-xl rounded-lg dark:border-zinc-800">
+      {/* Conteneur Principal */}
+      <DialogContent className="w-[500px] max-w-[95vw] p-6 bg-white dark:bg-[#1c1c1e] shadow-xl rounded-xl dark:border dark:border-zinc-800">
         
         {isConnected ? (
-          <div className="flex p-0">
+          <div className="flex flex-col">
             
-            {/* 1. BLOC CLAIM */}
-            <div className={`flex-1 p-8 relative overflow-hidden flex flex-col justify-between ${bgColor} min-h-[450px] rounded-l-lg border-r border-white/50 dark:border-zinc-800`}>
-                <BackgroundIcon Icon={Droplet} isDone={hasClaimed} />
+            {/* EN-TÊTE */}
+            <div className="mb-6">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Account Setup</h2>
+                <p className="text-sm text-gray-600 dark:text-zinc-400">
+                    Complete these steps to initialize your trading account.
+                </p>
+            </div>
 
-                <div className="relative z-10">
-                    <div className="flex items-center mb-4">
-                        <Droplet className={`w-6 h-6 mr-2 ${hasClaimed ? successColor : primaryColor}`} />
-                        <h3 className="font-semibold text-lg text-gray-800 dark:text-white">Claim Tokens</h3>
-                    </div>
-                    
-                    {hasClaimed ? (
-                        <div className="flex items-center text-blue-800 dark:text-blue-300 font-medium h-[60px]">
-                            <CheckCircle className={`w-5 h-5 mr-2 ${successColor}`} />
-                            Tokens claimed.
-                        </div>
-                    ) : (
-                        <p className="text-sm text-gray-600 dark:text-zinc-400 mb-6 h-[60px]">
-                            Receive test tokens required to start trading.
-                        </p>
-                    )}
-                </div>
+            <div className="flex flex-col gap-4 relative">
+                
+                {/* Ligne de connexion visuelle */}
+                <div className="absolute left-[1.15rem] top-10 bottom-10 w-0.5 bg-gray-300 dark:bg-zinc-800 z-0"></div>
 
-                {/* Bouton Claim */}
-                <Button
-                  onClick={handleClaim}
-                  disabled={hasClaimed || isClaiming || isLoadingClaimStatus}
-                  className={`relative z-10 w-full font-semibold transition-colors duration-300 
+                {/* --- ÉTAPE 1 : CLAIM --- */}
+                <div className={`relative z-10 flex items-center justify-between p-4 rounded-xl border transition-all duration-300
                     ${hasClaimed 
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-500 dark:hover:bg-blue-600' 
-                        : 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white'
+                        ? 'border-blue-200 dark:border-zinc-800 bg-blue-50/80 dark:bg-[#1c1c1e]' 
+                        : 'border-gray-300 dark:border-zinc-700 bg-gray-100 dark:bg-[#0a0a0a] shadow-sm'
                     }`}
                 >
-                    {isClaiming ? 'Claiming...' : (hasClaimed ? (
-                      <>
-                        <CheckCircle className="w-4 h-4 mr-2" /> 
-                        Claimed
-                      </>
-                    ) : (
-                      'Claim TUSD'
-                    ))}
-                </Button>
-            </div>
-
-
-            {/* 2. BLOC APPROVE */}
-            <div className={`flex-1 p-8 relative overflow-hidden flex flex-col justify-between ${bgColor} min-h-[350px] rounded-r-lg`}>
-                <BackgroundIcon Icon={DollarSign} isDone={isApproved} />
-
-                <div className="relative z-10">
-                    <div className="flex items-center mb-4">
-                        <DollarSign className={`w-6 h-6 mr-2 ${isApproved ? successColor : primaryColor}`} />
-                        <h3 className="font-semibold text-lg text-gray-800 dark:text-white">Approve Vault</h3>
+                    <div className="flex items-center gap-4">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors
+                            ${hasClaimed 
+                                ? 'bg-blue-100 text-blue-600 dark:bg-zinc-800 dark:text-white' 
+                                : 'bg-blue-600 text-white dark:bg-white dark:text-black'
+                            }`}
+                        >
+                            {hasClaimed ? <CheckCircle className="w-5 h-5" /> : <Droplet className="w-5 h-5" />}
+                        </div>
+                        <div>
+                            <h3 className="font-semibold text-sm text-gray-900 dark:text-white">1. Claim Test Tokens</h3>
+                            <p className="text-xs text-gray-600 dark:text-zinc-400">Get 1,000 USDC every 24H.</p>
+                        </div>
                     </div>
 
-                    {isApproved ? (
-                        <div className="flex items-center text-blue-800 dark:text-blue-300 font-medium h-[60px]">
-                            <CheckCircle className={`w-5 h-5 mr-2 ${successColor}`} />
-                            Vault approved. Ready to trade!
-                        </div>
-                    ) : (
-                        <p className="text-sm text-gray-600 dark:text-zinc-400 mb-6 h-[60px]">
-                            Grant the Vault permission to spend your TUSD tokens.
-                        </p>
-                    )}
+                    <Button
+                        onClick={handleClaim}
+                        disabled={hasClaimed || isClaiming || isLoadingClaimStatus || countdown !== null}
+                        size="sm"
+                        className={`font-semibold transition-colors duration-300 min-w-[100px]
+                            ${hasClaimed 
+                                ? 'bg-transparent text-blue-600 hover:bg-blue-100 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white border border-transparent cursor-default' 
+                                : 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-[#0a0a0a] dark:border dark:border-zinc-700 dark:hover:bg-zinc-800 dark:text-white'
+                            }`}
+                    >
+                        {isClaiming ? 'Claiming...' : (countdown ? countdown : 'Claim')}
+                    </Button>
                 </div>
 
-                {/* Bouton Approve */}
-                <Button
-                  onClick={handleApprove}
-                  disabled={!hasClaimed || isApproved || isApproving} 
-                  className={`relative z-10 w-full font-semibold transition-colors duration-300 
+
+                {/* --- ÉTAPE 2 : APPROVE --- */}
+                <div className={`relative z-10 flex items-center justify-between p-4 rounded-xl border transition-all duration-300
+                    ${!hasClaimed ? 'opacity-50 grayscale pointer-events-none' : ''}
                     ${isApproved 
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-blue-500 dark:hover:bg-blue-600' 
-                        : 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-white'
+                        ? 'border-blue-200 dark:border-zinc-800 bg-blue-50/80 dark:bg-[#1c1c1e]' 
+                        : (hasClaimed ? 'border-gray-300 dark:border-zinc-700 bg-gray-100 dark:bg-[#0a0a0a] shadow-sm' : 'border-transparent bg-transparent')
                     }`}
                 >
-                    {isApproving ? 'Approving...' : (isApproved ? (
-                      <>
-                        <CheckCircle className="w-4 h-4 mr-2" />
-                        Approved
-                      </>
-                    ) : (
-                      'Approve TUSD (Infinite)'
-                    ))}
-                </Button>
+                    <div className="flex items-center gap-4">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors
+                            ${isApproved 
+                                ? 'bg-blue-100 text-blue-600 dark:bg-zinc-800 dark:text-white' 
+                                : (hasClaimed ? 'bg-blue-600 text-white dark:bg-white dark:text-black' : 'bg-gray-300 text-gray-500 dark:bg-zinc-800 dark:text-zinc-500')
+                            }`}
+                        >
+                            {isApproved ? <CheckCircle className="w-5 h-5" /> : <DollarSign className="w-5 h-5" />}
+                        </div>
+                        <div>
+                            <h3 className="font-semibold text-sm text-gray-900 dark:text-white">2. Approve Vault</h3>
+                            <p className="text-xs text-gray-600 dark:text-zinc-400">Allow trading with USDC.</p>
+                        </div>
+                    </div>
+
+                    <Button
+                        onClick={handleApprove}
+                        disabled={!hasClaimed || isApproved || isApproving} 
+                        size="sm"
+                        className={`font-semibold transition-colors duration-300 min-w-[100px]
+                            ${isApproved 
+                                ? 'bg-transparent text-blue-600 hover:bg-blue-100 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white border border-transparent' 
+                                : 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-[#0a0a0a] dark:border dark:border-zinc-700 dark:hover:bg-zinc-800 dark:text-white'
+                            }`}
+                    >
+                        {isApproving ? 'Approving...' : (isApproved ? 'Done' : 'Approve')}
+                    </Button>
+                </div>
+
+
+                {/* --- ÉTAPE 3 : DEPOSIT --- */}
+                <div className={`relative z-10 flex items-center justify-between p-4 rounded-xl border transition-all duration-300
+                    ${!isApproved ? 'opacity-50 grayscale pointer-events-none' : ''}
+                    ${isApproved ? 'border-gray-300 dark:border-zinc-700 bg-gray-100 dark:bg-[#0a0a0a] shadow-sm' : 'border-transparent bg-transparent'}
+                    `}
+                >
+                    <div className="flex items-center gap-4">
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors
+                            ${isApproved ? 'bg-blue-600 text-white dark:bg-white dark:text-black' : 'bg-gray-300 text-gray-500 dark:bg-zinc-800 dark:text-zinc-500'}`}
+                        >
+                            <ArrowDownToLine className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 className="font-semibold text-sm text-gray-900 dark:text-white">3. Deposit Funds</h3>
+                            <p className="text-xs text-gray-600 dark:text-zinc-400">Fund your account to trade.</p>
+                        </div>
+                    </div>
+
+                    {/* ICI LA CORRECTION : J'inclus directement DepositDialog */}
+                    <div onClick={() => isApproved && onOpenChange(false)}>
+                        <DepositDialog 
+                            className={`h-9 px-4 text-sm font-semibold rounded-md transition-colors duration-300 min-w-[100px] border-none shadow-none
+                                ${isApproved 
+                                    ? 'bg-blue-600 hover:bg-blue-700 text-white dark:bg-[#0a0a0a] dark:border dark:border-zinc-700 dark:hover:bg-zinc-800 dark:text-white' 
+                                    : 'bg-transparent text-transparent pointer-events-none' /* On le cache subtilement si pas approuvé pour éviter le double bouton */
+                                }
+                            `} 
+                        />
+                        {/* Si pas approuvé, on affiche un faux bouton grisé à la place pour le visuel */}
+                        {!isApproved && (
+                             <Button
+                                disabled={true} 
+                                size="sm"
+                                className="absolute right-4 top-1/2 -translate-y-1/2 font-semibold transition-colors duration-300 min-w-[100px] bg-gray-300 text-gray-500 dark:bg-zinc-800 dark:text-zinc-600"
+                            >
+                                Deposit
+                            </Button>
+                        )}
+                    </div>
+                </div>
+
             </div>
-            
+
+            {/* MESSAGE FINAL */}
+            {isApproved && hasClaimed && (
+                <div className="mt-6 p-3 bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-900/30 rounded-lg flex items-center justify-center text-sm font-medium text-blue-700 dark:text-blue-400">
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    You are all set! You can now deposit funds to trade.
+                </div>
+            )}
+
           </div>
         ) : (
-             // VUE DECONNEXION (DARK MODE COMPATIBLE)
-             <div className="text-center py-12 px-8 flex flex-col items-center justify-center min-h-[450px] bg-white dark:bg-zinc-950">
-                <Wallet className="w-12 h-12 text-gray-400 dark:text-zinc-600 mb-4" />
-                <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-2">Wallet Connection Required</h3>
-                <p className="text-gray-600 dark:text-zinc-400 mb-6">
-                    Please connect your wallet to access the Faucet, claim test tokens, and approve the Vault for trading.
+            // VUE DECONNEXION
+            <div className="text-center py-10 flex flex-col items-center justify-center bg-white dark:bg-[#1c1c1e]">
+                <div className="w-16 h-16 bg-gray-100 dark:bg-[#0a0a0a] border border-gray-200 dark:border-zinc-800 rounded-full flex items-center justify-center mb-4 shadow-sm">
+                    <Wallet className="w-8 h-8 text-gray-500 dark:text-zinc-500" />
+                </div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Connect Your Wallet</h3>
+                <p className="text-sm text-gray-600 dark:text-zinc-400 max-w-[280px]">
+                    Please connect your wallet to access the Faucet and approve the Vault.
                 </p>
               </div>
         )}

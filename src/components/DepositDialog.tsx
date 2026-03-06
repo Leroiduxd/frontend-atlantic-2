@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useVaultBalances } from '@/hooks/useVaultBalances'; 
-import { useFaucet } from '@/hooks/useFaucet'; // Ajout du hook Faucet
+import { useFaucet } from '@/hooks/useFaucet'; 
 import { useToast } from '@/hooks/use-toast';
 import { BanknoteArrowDown, BanknoteArrowUp, ArrowRight, Wallet, Droplet, ShieldCheck } from 'lucide-react'; 
 import { useAccount, useWriteContract, useReadContracts, usePublicClient } from 'wagmi'; 
@@ -31,12 +31,25 @@ const ERC20_ABI = [
 type TransactionMode = 'deposit' | 'withdraw';
 type Step = 'faucet' | 'approve' | 'trade';
 
+// 🛑 CORRECTION ICI : Ajout de open et onOpenChange
 interface DepositDialogProps {
     className?: string;
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
 }
 
-export const DepositDialog = ({ className }: DepositDialogProps) => {
-  const [open, setOpen] = useState(false);
+export const DepositDialog = ({ className, open: controlledOpen, onOpenChange: controlledOnOpenChange }: DepositDialogProps) => {
+  const [internalOpen, setInternalOpen] = useState(false);
+  
+  // 🛑 CORRECTION ICI : Gestion intelligente de l'état (Contrôlé par le parent ou interne)
+  const isControlled = typeof controlledOpen !== 'undefined';
+  const open = isControlled ? controlledOpen : internalOpen;
+  
+  const setOpen = (newOpen: boolean) => {
+      if (!isControlled) setInternalOpen(newOpen);
+      if (controlledOnOpenChange) controlledOnOpenChange(newOpen);
+  };
+
   const [amount, setAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<TransactionMode>('deposit'); 
@@ -47,11 +60,8 @@ export const DepositDialog = ({ className }: DepositDialogProps) => {
   const { toast } = useToast();
 
   const { walletBalance, refetchAll: refetchWallet } = useVaultBalances();
-  
-  // Hook Faucet (on suppose qu'il expose hasClaimed et claimTestTokens)
   const { hasClaimed, claimTestTokens, isClaiming } = useFaucet();
 
-  // --- LECTURE DES DONNÉES DU VAULT & ALLOWANCE ---
   const { data: vaultData, refetch: refetchVaultData } = useReadContracts({
     contracts: [
         { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'getTraderTotalBalance', args: address ? [address] : undefined },
@@ -65,19 +75,16 @@ export const DepositDialog = ({ className }: DepositDialogProps) => {
   const rawFreeBalance = vaultData?.[1]?.result || 0n;
   const currentAllowance = vaultData?.[2]?.result || 0n;
 
-  // --- CALCULS & LOGIQUE INTELLIGENTE ---
   const vaultTotalDisplay = Number(formatUnits(rawTotalBalance, 6));
   const vaultAvailableDisplay = Number(formatUnits(rawFreeBalance, 6));
   const vaultLockedDisplay = vaultTotalDisplay - vaultAvailableDisplay;
   const numericWalletBalance = parseFloat(walletBalance.replace(/,/g, '')) || 0;
   const allowanceDisplay = Number(formatUnits(currentAllowance, 6));
 
-  // Détermination de l'étape courante (Smart Funnel)
   const currentStep = useMemo<Step>(() => {
-    if (!isConnected) return 'trade'; // Sera géré par l'écran "Connect Wallet"
+    if (!isConnected) return 'trade'; 
     if (!hasClaimed) return 'faucet';
 
-    // Conditions pour sauter l'approbation :
     const hasDeposited = rawTotalBalance > 0n;
     const hasEnoughAllowance = allowanceDisplay >= 10000;
     const coversWalletBalance = numericWalletBalance > 0 && allowanceDisplay >= numericWalletBalance;
@@ -88,7 +95,6 @@ export const DepositDialog = ({ className }: DepositDialogProps) => {
     return 'approve';
   }, [isConnected, hasClaimed, rawTotalBalance, allowanceDisplay, numericWalletBalance]);
 
-  // --- UI DYNAMIQUE ---
   const depositColor = 'text-trading-blue dark:text-zinc-600';
   const withdrawColor = 'text-red-500 dark:text-zinc-600'; 
   
@@ -127,7 +133,6 @@ export const DepositDialog = ({ className }: DepositDialogProps) => {
     toast({ title: "Connection Required", description: "Please connect your wallet to proceed.", variant: "destructive" });
   }, [toast]);
 
-  // --- ACTIONS ---
   const executeApproval = async (targetAmount: number) => {
     if (!isConnected) return showConnectWalletToast();
     setLoading(true);
@@ -156,7 +161,6 @@ export const DepositDialog = ({ className }: DepositDialogProps) => {
     try {
         await claimTestTokens();
         toast({ title: "Claim Successful", description: "Test funds claimed!" });
-        // Le hook useFaucet devrait mettre à jour hasClaimed automatiquement
     } catch (error: any) {
         toast({ title: "Claim Failed", description: error?.message || "Transaction failed.", variant: "destructive" });
     } finally {
@@ -205,14 +209,26 @@ export const DepositDialog = ({ className }: DepositDialogProps) => {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="secondary" size="sm" className={`text-xs font-semibold ${className}`}>
-          Deposit
-        </Button>
-      </DialogTrigger>
       
-      <DialogContent className={`w-[650px] max-w-none p-0 shadow-xl rounded-lg min-h-[450px] overflow-hidden bg-white dark:bg-zinc-950 dark:border-zinc-800`}>
-        
+      {/* 🛑 CORRECTION ICI : N'affiche le bouton que si ce n'est pas géré par le parent FaucetDialog.
+          Et bloque la propagation du clic (e.stopPropagation) pour éviter la fermeture d'un parent. */}
+      {!isControlled && (
+          <DialogTrigger asChild>
+            <Button 
+                variant="secondary" 
+                size="sm" 
+                className={`text-xs font-semibold ${className}`}
+                onClick={(e) => e.stopPropagation()} 
+            >
+              Deposit
+            </Button>
+          </DialogTrigger>
+      )}
+      
+      <DialogContent 
+        onClick={(e) => e.stopPropagation()} // 🛑 Bloque aussi les clics à l'intérieur de la modale
+        className={`w-[650px] max-w-none p-0 shadow-xl rounded-lg min-h-[450px] overflow-hidden bg-white dark:bg-zinc-950 dark:border-zinc-800`}
+      >
         {!isConnected ? (
              <div className="text-center py-12 px-8 flex flex-col items-center justify-center min-h-[450px]">
                 <Wallet className="w-12 h-12 text-gray-400 dark:text-gray-600 mb-4" />
@@ -226,7 +242,6 @@ export const DepositDialog = ({ className }: DepositDialogProps) => {
             </div>
         ) : (
         <>
-            {/* BOUTONS DE NAVIGATION HAUT (Seulement en mode Trade) */}
             {currentStep === 'trade' && (
                 <div className="absolute top-4 right-4 z-20 flex space-x-2">
                     <Button
@@ -248,12 +263,10 @@ export const DepositDialog = ({ className }: DepositDialogProps) => {
 
             <div className="relative flex h-full min-h-[450px]">
               
-              {/* PANNEAU GAUCHE (ICÔNE) */}
               <div className={`w-[42%] p-8 relative ${currentDarkBgColor}`}>
                 <MainActionIcon Icon={CurrentIconComponent} color={CurrentMainIconColor} />
               </div>
 
-              {/* PANNEAU DROIT (CONTENU DYNAMIQUE) */}
               <div className="w-[58%] p-8 flex flex-col justify-between items-end space-y-8 bg-white dark:bg-zinc-950">
                 
                 {currentStep === 'trade' && (
@@ -287,7 +300,6 @@ export const DepositDialog = ({ className }: DepositDialogProps) => {
                 )}
                 
                 <div className="w-full space-y-4 mt-auto">
-                    {/* RENDU ACTION SELON L'ÉTAPE */}
                     
                     {currentStep === 'faucet' && (
                         <Button
@@ -337,7 +349,6 @@ export const DepositDialog = ({ className }: DepositDialogProps) => {
                                 </Button>
                             </div>
 
-                            {/* Options cachées d'approbation (discrètes) */}
                             {mode === 'deposit' && (
                                 <div className="w-full flex justify-end gap-3 pt-1">
                                     <button 

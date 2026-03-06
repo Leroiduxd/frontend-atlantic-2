@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useWebSocket, getAssetsByCategory } from "@/hooks/useWebSocket"; 
 import { FaTelegram } from "react-icons/fa";
+// ⚠️ MODIFIE LE CHEMIN CI-DESSOUS SELON OÙ TU AS ENREGISTRÉ AssetIcon
+import { AssetIcon } from "@/hooks/useAssetIcon"; 
 
 // --- Constantes de Hauteur ---
 const FOOTER_HEIGHT = 34; 
@@ -62,9 +64,10 @@ const DocsIcon = () => (
 interface TickerItemProps {
     data: AssetTickerData;
     onClick: (asset: Asset) => void; 
+    isDark: boolean; // Ajouté pour gérer la couleur de l'icône
 }
 
-const TickerItem: React.FC<TickerItemProps> = ({ data, onClick }) => {
+const TickerItem: React.FC<TickerItemProps> = ({ data, onClick, isDark }) => {
     const formatPrice = (priceStr: string) => {
         const price = parseFloat(priceStr);
         if (isNaN(price)) return '---';
@@ -100,6 +103,13 @@ const TickerItem: React.FC<TickerItemProps> = ({ data, onClick }) => {
             onClick={handleClick}
             style={{ paddingLeft: '1rem', paddingRight: '1rem' }} 
         >
+            {/* L'icône importée s'affiche ici */}
+            <AssetIcon 
+                assetId={data.id} 
+                isDark={isDark} 
+                size="14px" 
+                className="mr-2 opacity-70 dark:opacity-80" 
+            />
             <span className="font-bold mr-2 text-gray-600 dark:text-zinc-500">{data.symbol}</span>
             <span className="font-semibold mr-3 text-black dark:text-zinc-300">{price}</span>
             <span className={`font-medium ${changeColor}`}>{changeText}</span>
@@ -126,6 +136,16 @@ const MarqueeStyles = `
 // --- Composant Principal BottomBar ---
 export const BottomBar: React.FC<BottomBarProps> = ({ onAssetSelect, currentAssetId }) => {
     const { data: wsData, connected } = useWebSocket();
+    const [isDark, setIsDark] = useState(false);
+
+    // Détection du thème (pour adapter les logos)
+    useEffect(() => {
+        const checkTheme = () => setIsDark(document.documentElement.classList.contains('dark'));
+        checkTheme(); // Check initial
+        const observer = new MutationObserver(checkTheme);
+        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+        return () => observer.disconnect();
+    }, []);
     
     const allAssetsData: AssetTickerData[] = useMemo(() => {
         if (!wsData || !connected) return [];
@@ -181,7 +201,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({ onAssetSelect, currentAsse
             <div className="marquee-container h-full items-center">
                 {tickerItems.flatMap((data, index) => {
                     const elements = [
-                        <TickerItem key={`item-${data.id}-${index}`} data={data} onClick={onAssetSelect} />
+                        <TickerItem key={`item-${data.id}-${index}`} data={data} onClick={onAssetSelect} isDark={isDark} />
                     ];
                     if (index < tickerItems.length - 1) {
                         elements.push(<TickerSeparator key={`sep-${data.id}-${index}`} />);
