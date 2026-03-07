@@ -17,7 +17,6 @@ import { Hash, formatUnits } from 'viem';
 import { useMarketStatus } from "@/hooks/useMarketStatus";
 
 // --- MAPPING DES TAILLES DE LOTS ---
-// Clé = assetId, Valeur = quantité d'actif pour 1 lot au niveau de l'affichage
 const ASSET_LOT_SIZES: Record<number, number> = {
     0: 0.01,    // btc_usdt
     1: 0.01,     // eth_usdt
@@ -31,7 +30,6 @@ const ASSET_LOT_SIZES: Record<number, number> = {
     90: 10,     // sui_usdt
     5500: 0.01, // xau_usd
     5501: 0.1,  // xag_usd
-    // Par défaut, tous les autres (actions, indices, forex) vaudront 1
 };
 
 // --- CONSTANTES TRADING ---
@@ -168,8 +166,12 @@ const OrderPanel = ({
     const [tpEnabled, setTpEnabled] = useState(false);
     const [slEnabled, setSlEnabled] = useState(false);
     const [leverage, setLeverage] = useState(10);
-    const [assetAmount, setAssetAmount] = useState<number | string>(1); // Remplace lotsDisplay
+    const [assetAmount, setAssetAmount] = useState<number | string>(1); 
     const [limitPrice, setLimitPrice] = useState('');
+    
+    // NOUVEL ÉTAT : Tracker si l'utilisateur a modifié le prix à la main
+    const [isUserEditedPrice, setIsUserEditedPrice] = useState(false);
+
     const [tpPrice, setTpPrice] = useState('');
     const [slPrice, setSlPrice] = useState('');
     const [localLoading, setLocalLoading] = useState(false);
@@ -220,15 +222,12 @@ const OrderPanel = ({
     const lotSizeInAsset = ASSET_LOT_SIZES[finalAssetIdForTx] || 1;
     const amountDecimals = Math.max(0, -Math.floor(Math.log10(lotSizeInAsset)));
     
-    // Convertir l'input en lots réels pour le smart contract (Arrondi au plus proche)
     const actualLots = useMemo(() => {
         return Math.max(1, Math.round(Number(assetAmount) / lotSizeInAsset));
     }, [assetAmount, lotSizeInAsset]);
 
-    // Montant effectif (pour recalculer le PnL, la marge et les coûts si l'utilisateur a rentré un montant bizarre)
     const effectiveAmount = actualLots * lotSizeInAsset;
 
-    // Réinitialiser la quantité affichée au minimum valide quand on change d'actif
     useEffect(() => {
         setAssetAmount(lotSizeInAsset);
     }, [finalAssetIdForTx, lotSizeInAsset]);
@@ -244,17 +243,30 @@ const OrderPanel = ({
         return { priceDecimals: decimals, priceStep: 1 / (10 ** decimals) };
     }, [assetConfig]);
 
+    // 1. Réinitialiser le tracker de modification manuelle si on change d'actif ou de type d'ordre
+    useEffect(() => {
+        setIsUserEditedPrice(false);
+    }, [selectedAsset.id, orderType]);
+
+    // 2. Mettre à jour le prix via WSS SEULEMENT si l'utilisateur n'y a pas touché
     useEffect(() => {
         if (currentPrice > 0 && (orderType === 'limit' || orderType === 'stop')) {
-            setLimitPrice(currentPrice.toFixed(priceDecimals));
+            if (!isUserEditedPrice) {
+                setLimitPrice(currentPrice.toFixed(priceDecimals));
+            }
         }
-    }, [selectedAsset.id, currentPrice, priceDecimals, orderType]);
+    }, [currentPrice, priceDecimals, orderType, isUserEditedPrice]);
+
+    // Fonction déclenchée quand l'utilisateur tape ou clique sur +/- du prix limite/stop
+    const handleLimitPriceChange = (newVal: any) => {
+        setIsUserEditedPrice(true);
+        setLimitPrice(newVal);
+    };
 
     const calculations = useMemo(() => {
         const price = (orderType === 'limit' || orderType === 'stop') && limitPrice ? Number(limitPrice) : currentPrice;
         if (isNaN(price) || price <= 0 || effectiveAmount <= 0) return { value: 0, cost: 0, commission: 0, liqPriceLong: 0, liqPriceShort: 0 };
         
-        // La valeur nominale est calculée sur le montant EFFECTIF (en unités d'actif) * le prix
         const displayNotional = effectiveAmount * price; 
         const commissionRate = 0.001; 
 
@@ -295,7 +307,7 @@ const OrderPanel = ({
                         isLong: longSide,
                         isLimit: orderType === 'limit',
                         leverage: leverage,
-                        lotSize: actualLots, // Envoi en lot contractuel
+                        lotSize: actualLots,
                         targetPrice: targetPriceX6,
                         stopLoss: slX6,
                         takeProfit: tpX6
@@ -305,7 +317,7 @@ const OrderPanel = ({
                         assetId: finalAssetIdForTx,
                         isLong: longSide,
                         leverage: leverage,
-                        lotSize: actualLots, // Envoi en lot contractuel
+                        lotSize: actualLots,
                         stopLoss: slX6,
                         takeProfit: tpX6
                     });
@@ -324,7 +336,7 @@ const OrderPanel = ({
                             longSide, 
                             isLimit, 
                             leverage, 
-                            actualLots, // Envoi en lot contractuel
+                            actualLots,
                             BigInt(targetPriceX6), 
                             BigInt(slX6), 
                             BigInt(tpX6)
@@ -340,7 +352,7 @@ const OrderPanel = ({
                             finalAssetIdForTx, 
                             longSide, 
                             leverage, 
-                            actualLots, // Envoi en lot contractuel
+                            actualLots,
                             BigInt(slX6), 
                             BigInt(tpX6), 
                             proof
@@ -405,11 +417,11 @@ const OrderPanel = ({
                         <span className="text-light-text dark:text-zinc-500 text-xs block mb-1">
                             {orderType === "stop" ? "Stop Price (USD)" : "Limit Price (USD)"}
                         </span>
-                        <StepController value={limitPrice} onChange={setLimitPrice} step={priceStep} decimals={priceDecimals} />
+                        {/* ICI on passe la nouvelle fonction handleLimitPriceChange */}
+                        <StepController value={limitPrice} onChange={handleLimitPriceChange} step={priceStep} decimals={priceDecimals} />
                     </div>
                 )}
 
-                {/* Amount basé sur la configuration de l'actif */}
                 <div>
                     <span className="text-light-text dark:text-zinc-500 text-xs block mb-1">
                         Amount ({selectedAsset.symbol.split('/')[0]})

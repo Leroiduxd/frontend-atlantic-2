@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -91,6 +91,9 @@ export const OrderPanelMobile = ({
     const [assetAmount, setAssetAmount] = useState<number | string>(1);
     const [limitPrice, setLimitPrice] = useState('');
     
+    // NOUVEAU: Tracker si l'utilisateur a modifié le prix manuellement
+    const [isUserEditedPrice, setIsUserEditedPrice] = useState(false);
+
     // States TP / SL
     const [tpEnabled, setTpEnabled] = useState(false);
     const [tpMode, setTpMode] = useState<"price" | "percent" | "pnl">("price");
@@ -145,7 +148,12 @@ export const OrderPanelMobile = ({
     const actualLots = useMemo(() => Math.max(1, Math.round(Number(assetAmount) / lotSizeInAsset)), [assetAmount, lotSizeInAsset]);
     const effectiveAmount = actualLots * lotSizeInAsset;
 
-    useEffect(() => { setAssetAmount(lotSizeInAsset); }, [finalAssetIdForTx, lotSizeInAsset]);
+    // Réinitialiser le tracker de modification manuelle si on change d'actif ou de type d'ordre
+    useEffect(() => {
+        setIsUserEditedPrice(false);
+        setAssetAmount(lotSizeInAsset);
+    }, [finalAssetIdForTx, lotSizeInAsset, orderType]);
+
     useEffect(() => { if (!isMarketOpen && orderType === "market") setOrderType("limit"); }, [isMarketOpen, orderType]);
 
     const assetConfig = getConfigById(finalAssetIdForTx);
@@ -154,11 +162,20 @@ export const OrderPanelMobile = ({
         return { priceDecimals: decimals };
     }, [assetConfig]);
 
+    // Mettre à jour via WSS *uniquement* si l'utilisateur n'y a pas touché
     useEffect(() => {
         if (currentPrice > 0 && (orderType === 'limit' || orderType === 'stop')) {
-            setLimitPrice(currentPrice.toFixed(priceDecimals));
+            if (!isUserEditedPrice) {
+                setLimitPrice(currentPrice.toFixed(priceDecimals));
+            }
         }
-    }, [selectedAsset.id, currentPrice, priceDecimals, orderType]);
+    }, [currentPrice, priceDecimals, orderType, isUserEditedPrice]);
+
+    // NOUVEAU: Handler personnalisé pour le Limit Price (Bloque le WSS)
+    const handleLimitPriceChange = (newVal: string) => {
+        setIsUserEditedPrice(true);
+        setLimitPrice(newVal);
+    };
 
     const calculations = useMemo(() => {
         const price = (orderType === 'limit' || orderType === 'stop') && limitPrice ? Number(limitPrice) : currentPrice;
@@ -323,7 +340,7 @@ export const OrderPanelMobile = ({
 
                 <div className="space-y-3">
                     {(orderType === "limit" || orderType === "stop") && (
-                        <CleanInput label="Price" suffix="USDT" value={limitPrice} onChange={setLimitPrice} />
+                        <CleanInput label="Price" suffix="USDT" value={limitPrice} onChange={handleLimitPriceChange} />
                     )}
                     <CleanInput label="Size" suffix={selectedAsset.symbol.split('/')[0]} value={assetAmount} onChange={setAssetAmount} />
                 </div>
