@@ -3,20 +3,24 @@
 import { useState, useMemo } from "react";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useChartData } from "@/hooks/useChartData";
-import { CandlestickChart, Briefcase, Trophy, Wallet, X } from "lucide-react"; // Remplacement Landmark par Trophy
+import { CandlestickChart, Briefcase, Trophy, Wallet, X } from "lucide-react"; 
 import { Sheet, SheetContent } from "@/components/ui/sheet"; 
 
-import { ChartControlsMobile, Asset } from "./ChartControlsMobile";
+// Modification ici : import de AssetSelectorMobile
+import { ChartControlsMobile, AssetSelectorMobile, Asset } from "./ChartControlsMobile";
 import { LightweightChartMobile } from "./LightweightChartMobile";
 import { WalletView } from "./WalletView"; 
 import { OrderPanelMobile } from "./OrderPanelMobile"; 
 import { PositionsSectionMobile } from "./PositionsSectionMobile"; 
-import { LeaderboardMobile } from "./LeaderboardMobile"; // Nouvel import !
+import { LeaderboardMobile } from "./LeaderboardMobile";
 
 export default function MobileLayout() {
   const [activeTab, setActiveTab] = useState("trade");
   const [isChartOpen, setIsChartOpen] = useState(false);
   const [paymasterEnabled, setPaymasterEnabled] = useState(true);
+  
+  // Nouvel état pour gérer l'affichage de la liste des actifs
+  const [isAssetListOpen, setIsAssetListOpen] = useState(false);
   
   const [selectedAsset, setSelectedAsset] = useState<Asset>({
     id: 0, 
@@ -82,28 +86,39 @@ export default function MobileLayout() {
         {activeTab === "trade" && (
           <div className="flex flex-col h-full">
             <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-zinc-900 transition-colors">
+               {/* Modification ici : passage des props de gestion de la liste */}
                <ChartControlsMobile
                 selectedAsset={selectedAsset}
-                onAssetChange={setSelectedAsset}
                 currentPrice={livePrice}
+                isListOpen={isAssetListOpen}
+                onToggleList={() => setIsAssetListOpen(!isAssetListOpen)}
               />
             </div>
             <div className="flex-1 overflow-y-auto">
-                <OrderPanelMobile 
-                    selectedAsset={selectedAsset}
-                    currentPrice={livePrice}
-                    paymasterEnabled={paymasterEnabled}
-                    onTogglePaymaster={() => setPaymasterEnabled(!paymasterEnabled)}
-                    isChartOpen={isChartOpen}
-                    onToggleChart={() => setIsChartOpen(!isChartOpen)}
-                    chartComponent={chartComponent}
-                    onGoToWallet={() => setActiveTab("wallet")} 
-                />
+                {/* LOGIQUE CONDITIONNELLE : Liste OU Panneau d'ordre */}
+                {isAssetListOpen ? (
+                    <AssetSelectorMobile 
+                        onAssetChange={(asset) => {
+                            setSelectedAsset(asset);
+                            setIsAssetListOpen(false); // Referme la liste quand on clique
+                        }} 
+                    />
+                ) : (
+                    <OrderPanelMobile 
+                        selectedAsset={selectedAsset}
+                        currentPrice={livePrice}
+                        paymasterEnabled={paymasterEnabled}
+                        onTogglePaymaster={() => setPaymasterEnabled(!paymasterEnabled)}
+                        isChartOpen={isChartOpen}
+                        onToggleChart={() => setIsChartOpen(!isChartOpen)}
+                        chartComponent={chartComponent}
+                        onGoToWallet={() => setActiveTab("wallet")} 
+                    />
+                )}
             </div>
           </div>
         )}
 
-        {/* NOUVELLE VUE LEADERBOARD */}
         {activeTab === "positions" && <div className="flex-1 h-full"><PositionsSectionMobile /></div>}
         {activeTab === "leaderboard" && <div className="flex-1 h-full"><LeaderboardMobile /></div>}
         {activeTab === "wallet" && <div className="flex-1 h-full"><WalletView /></div>}
@@ -111,9 +126,8 @@ export default function MobileLayout() {
 
       <div className="flex-none bg-white dark:bg-black border-t border-slate-200 dark:border-zinc-900 pb-safe transition-colors"> 
         <div className="grid grid-cols-4 h-16 items-center">
-          <NavButton active={activeTab === "trade"} onClick={() => setActiveTab("trade")} icon={<CandlestickChart className="w-5 h-5" />} label="Trade" />
+          <NavButton active={activeTab === "trade"} onClick={() => { setActiveTab("trade"); setIsAssetListOpen(false); }} icon={<CandlestickChart className="w-5 h-5" />} label="Trade" />
           <NavButton active={activeTab === "positions"} onClick={() => setActiveTab("positions")} icon={<Briefcase className="w-5 h-5" />} label="Positions" />
-          {/* NOUVEAU BOUTON RANKS */}
           <NavButton active={activeTab === "leaderboard"} onClick={() => setActiveTab("leaderboard")} icon={<Trophy className="w-5 h-5" />} label="Ranks" />
           <NavButton active={activeTab === "wallet"} onClick={() => setActiveTab("wallet")} icon={<Wallet className="w-5 h-5" />} label="Wallet" />
         </div>
