@@ -192,13 +192,6 @@ const AssetDisplay: React.FC<ParsedAsset> = ({ symbol, parts }) => {
       {parts.map((part, index) => (
         <span
           key={index}
-          // --- CHANGEMENTS ICI ---
-          // part.isBlue (Première lettre) :
-          //    - Light: text-blue-600 (Bleu)
-          //    - Dark:  dark:text-white (Blanc)
-          // !part.isBlue (Reste du mot) :
-          //    - Light: text-gray-500 (Gris)
-          //    - Dark:  dark:text-zinc-500 (Gris plus clair que zinc-700)
           className={
             part.isBlue 
               ? "text-blue-600 dark:text-white transition-colors duration-300" 
@@ -238,6 +231,8 @@ export const WelcomeOverlay: React.FC<WelcomeOverlayProps> = ({ onDismiss }) => 
   
   useEffect(() => {
     if (!onDismiss) return;
+
+    // 1. Fermeture via la touche Entrée
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Enter') {
         event.preventDefault(); 
@@ -245,8 +240,15 @@ export const WelcomeOverlay: React.FC<WelcomeOverlayProps> = ({ onDismiss }) => 
       }
     };
     document.addEventListener('keydown', handleKeyDown);
+
+    // 2. Fermeture automatique après 3 secondes (3000 millisecondes)
+    const timeoutId = setTimeout(() => {
+      onDismiss();
+    }, 2200);
+
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(timeoutId); // On nettoie le timer si le composant est démonté avant les 3s (ex: l'utilisateur a appuyé sur Entrée)
     };
   }, [onDismiss]); 
 
@@ -254,12 +256,12 @@ export const WelcomeOverlay: React.FC<WelcomeOverlayProps> = ({ onDismiss }) => 
     <>
       <style>{TickerStyles}</style>
 
-      <div className="fixed inset-0 z-50">
+      <div className="fixed inset-0 z-50 pointer-events-none"> {/* pointer-events-none pour ne pas bloquer les clics en dessous si besoin, sauf sur le bouton */}
         
         {/* Fond : Blanc en Light / Noir Total en Dark */}
         <div 
             style={styles.contentWrapper} 
-            className="doto-style bg-white dark:bg-black transition-colors duration-300"
+            className="doto-style bg-white dark:bg-black transition-colors duration-300 pointer-events-auto"
         >
           <FinanceTicker />
         </div>
@@ -270,7 +272,7 @@ export const WelcomeOverlay: React.FC<WelcomeOverlayProps> = ({ onDismiss }) => 
             className="absolute bottom-6 right-6 px-8 py-3 rounded-full 
                        bg-black text-white 
                        dark:bg-white dark:text-black 
-                       text-lg font-bold tracking-widest transition-all hover:opacity-80"
+                       text-lg font-bold tracking-widest transition-all hover:opacity-80 pointer-events-auto"
           >
             Enter Brokex
           </button>
