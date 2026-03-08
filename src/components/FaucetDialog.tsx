@@ -7,6 +7,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { useFaucet } from '@/hooks/useFaucet'; 
 import { useToast } from "@/hooks/use-toast";
 import { useAccount } from 'wagmi'; 
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 // L'IMPORT DE TA MODAL DE DÉPÔT
 import { DepositDialog } from "@/components/DepositDialog";
@@ -243,10 +244,22 @@ export const FaucetDialog: React.FC<FaucetDialogProps> = ({ open, onOpenChange, 
                     <Wallet className="w-8 h-8 text-gray-500 dark:text-zinc-500" />
                 </div>
                 <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Connect Your Wallet</h3>
-                <p className="text-sm text-gray-600 dark:text-zinc-400 max-w-[280px]">
+                <p className="text-sm text-gray-600 dark:text-zinc-400 max-w-[280px] mb-6">
                     Please connect your wallet to access the Faucet and approve the Vault.
                 </p>
-              </div>
+
+                {/* BOUTON DE CONNEXION */}
+                <ConnectButton.Custom>
+                    {({ openConnectModal }) => (
+                        <Button 
+                            onClick={openConnectModal}
+                            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 h-10 rounded-md transition-colors w-full max-w-[200px]"
+                        >
+                            Connect Wallet
+                        </Button>
+                    )}
+                </ConnectButton.Custom>
+            </div>
         )}
       </DialogContent>
     </Dialog>

@@ -15,6 +15,10 @@ import { usePaymaster } from "@/hooks/useBrokexPaymaster";
 import { Landmark, ChevronUp, ChevronDown, Fuel, Eye, EyeOff } from 'lucide-react'; 
 import { Hash, formatUnits } from 'viem';
 import { useMarketStatus } from "@/hooks/useMarketStatus";
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+
+// NOUVEAU : On importe le FaucetDialog pour pouvoir l'ouvrir depuis l'OrderPanel
+import { FaucetDialog } from "@/components/FaucetDialog";
 
 // --- MAPPING DES TAILLES DE LOTS ---
 const ASSET_LOT_SIZES: Record<number, number> = {
@@ -153,13 +157,15 @@ interface OrderPanelProps {
     currentPrice: number;
     paymasterEnabled: boolean;
     onTogglePaymaster: () => void;
+    onGoToWallet?: () => void;
 }
 
 const OrderPanel = ({
     selectedAsset,
     currentPrice,
     paymasterEnabled,
-    onTogglePaymaster
+    onTogglePaymaster,
+    onGoToWallet
 }: OrderPanelProps) => {
 
     const [orderType, setOrderType] = useState<OrderType>("limit");
@@ -169,8 +175,10 @@ const OrderPanel = ({
     const [assetAmount, setAssetAmount] = useState<number | string>(1); 
     const [limitPrice, setLimitPrice] = useState('');
     
-    // NOUVEL ÉTAT : Tracker si l'utilisateur a modifié le prix à la main
     const [isUserEditedPrice, setIsUserEditedPrice] = useState(false);
+
+    // Etat pour ouvrir la modale Faucet
+    const [isFaucetOpen, setIsFaucetOpen] = useState(false);
 
     const [tpPrice, setTpPrice] = useState('');
     const [slPrice, setSlPrice] = useState('');
@@ -186,19 +194,21 @@ const OrderPanel = ({
     const { toast } = useToast();
     const publicClient = usePublicClient({ chainId: currentChain?.id });
 
+    const safeAddress = address || '0x0000000000000000000000000000000000000000';
+
     const { data: balanceData, refetch: refetchBalances } = useReadContracts({
         contracts: [
             {
                 address: VAULT_ADDRESS,
                 abi: VAULT_ABI,
                 functionName: 'getTraderTotalBalance',
-                args: address ? [address] : undefined,
+                args: [safeAddress],
             },
             {
                 address: VAULT_ADDRESS,
                 abi: VAULT_ABI,
                 functionName: 'freeBalance',
-                args: address ? [address] : undefined,
+                args: [safeAddress],
             }
         ],
         query: { enabled: !!address, refetchInterval: 5000 }
@@ -218,7 +228,6 @@ const OrderPanel = ({
     const marketStatus = useMarketStatus(finalAssetIdForTx);
     const isMarketOpen = marketStatus.isOpen;
 
-    // --- LOGIQUE DES LOTS ---
     const lotSizeInAsset = ASSET_LOT_SIZES[finalAssetIdForTx] || 1;
     const amountDecimals = Math.max(0, -Math.floor(Math.log10(lotSizeInAsset)));
     
@@ -243,12 +252,10 @@ const OrderPanel = ({
         return { priceDecimals: decimals, priceStep: 1 / (10 ** decimals) };
     }, [assetConfig]);
 
-    // 1. Réinitialiser le tracker de modification manuelle si on change d'actif ou de type d'ordre
     useEffect(() => {
         setIsUserEditedPrice(false);
     }, [selectedAsset.id, orderType]);
 
-    // 2. Mettre à jour le prix via WSS SEULEMENT si l'utilisateur n'y a pas touché
     useEffect(() => {
         if (currentPrice > 0 && (orderType === 'limit' || orderType === 'stop')) {
             if (!isUserEditedPrice) {
@@ -257,7 +264,6 @@ const OrderPanel = ({
         }
     }, [currentPrice, priceDecimals, orderType, isUserEditedPrice]);
 
-    // Fonction déclenchée quand l'utilisateur tape ou clique sur +/- du prix limite/stop
     const handleLimitPriceChange = (newVal: any) => {
         setIsUserEditedPrice(true);
         setLimitPrice(newVal);
@@ -417,7 +423,6 @@ const OrderPanel = ({
                         <span className="text-light-text dark:text-zinc-500 text-xs block mb-1">
                             {orderType === "stop" ? "Stop Price (USD)" : "Limit Price (USD)"}
                         </span>
-                        {/* ICI on passe la nouvelle fonction handleLimitPriceChange */}
                         <StepController value={limitPrice} onChange={handleLimitPriceChange} step={priceStep} decimals={priceDecimals} />
                     </div>
                 )}
@@ -437,24 +442,80 @@ const OrderPanel = ({
 
                 <div className="space-y-3">
                     <div>
+                        {/* NOUVEAU : Logique de clic sur Checkbox pour Take Profit */}
                         <label className="flex items-center text-foreground dark:text-zinc-300 cursor-pointer mb-2">
-                            <Checkbox checked={tpEnabled} onCheckedChange={(c) => setTpEnabled(c as boolean)} className="mr-2 dark:border-zinc-600 dark:data-[state=checked]:bg-zinc-200 dark:data-[state=checked]:text-black" />
+                            <Checkbox 
+                                checked={tpEnabled} 
+                                onCheckedChange={(c) => {
+                                    setTpEnabled(!!c);
+                                    if (!!c) setTpPrice(currentPrice.toFixed(priceDecimals));
+                                }} 
+                                className="mr-2 dark:border-zinc-600 dark:data-[state=checked]:bg-zinc-200 dark:data-[state=checked]:text-black" 
+                            />
                             <span className="text-sm">Take Profit</span>
                         </label>
                         {tpEnabled && <StepController value={tpPrice} onChange={setTpPrice} step={priceStep} decimals={priceDecimals} />}
                     </div>
                     <div>
+                        {/* NOUVEAU : Logique de clic sur Checkbox pour Stop Loss */}
                         <label className="flex items-center text-foreground dark:text-zinc-300 cursor-pointer mb-2">
-                            <Checkbox checked={slEnabled} onCheckedChange={(c) => setSlEnabled(c as boolean)} className="mr-2 dark:border-zinc-600 dark:data-[state=checked]:bg-zinc-200 dark:data-[state=checked]:text-black" />
+                            <Checkbox 
+                                checked={slEnabled} 
+                                onCheckedChange={(c) => {
+                                    setSlEnabled(!!c);
+                                    if (!!c) setSlPrice(currentPrice.toFixed(priceDecimals));
+                                }} 
+                                className="mr-2 dark:border-zinc-600 dark:data-[state=checked]:bg-zinc-200 dark:data-[state=checked]:text-black" 
+                            />
                             <span className="text-sm">Stop Loss</span>
                         </label>
                         {slEnabled && <StepController value={slPrice} onChange={setSlPrice} step={priceStep} decimals={priceDecimals} />}
                     </div>
                 </div>
 
-                <div className="flex space-x-3 pt-2 pb-3">
-                    <Button onClick={() => handleTrade(true)} disabled={loading} className={`flex-1 font-bold ${loading ? 'bg-zinc-800' : 'bg-trading-blue hover:opacity-90'} text-white`}>{loading ? '...' : 'Buy'}</Button>
-                    <Button onClick={() => handleTrade(false)} disabled={loading} className={`flex-1 font-bold ${loading ? 'bg-zinc-800' : 'bg-trading-red hover:opacity-90'} text-white`}>{loading ? '...' : 'Sell'}</Button>
+                {/* SÉCURISATION DU CONNECT BUTTON + CLAIM FAUCET */}
+                <div className="w-full pt-2 pb-3">
+                    <ConnectButton.Custom>
+                        {({ account, chain, openConnectModal, mounted }) => {
+                            const ready = mounted;
+                            const connected = ready && account && chain;
+                            
+                            return (
+                                <div
+                                    className="flex space-x-3 w-full"
+                                    {...(!ready && {
+                                        'aria-hidden': true,
+                                        style: { opacity: 0, pointerEvents: 'none' },
+                                    })}
+                                >
+                                    {!connected ? (
+                                        <Button 
+                                            onClick={openConnectModal} 
+                                            className="w-full font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                                        >
+                                            Connect Wallet
+                                        </Button>
+                                    ) : totalBalanceVal <= 0 ? (
+                                        <Button 
+                                            onClick={() => setIsFaucetOpen(true)} 
+                                            className="w-full font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                                        >
+                                            Claim Test Funds
+                                        </Button>
+                                    ) : (
+                                        <>
+                                            <Button onClick={() => handleTrade(true)} disabled={loading} className={`flex-1 font-bold ${loading ? 'bg-zinc-800' : 'bg-trading-blue hover:opacity-90'} text-white`}>
+                                                {loading ? '...' : 'Buy'}
+                                            </Button>
+                                            <Button onClick={() => handleTrade(false)} disabled={loading} className={`flex-1 font-bold ${loading ? 'bg-zinc-800' : 'bg-trading-red hover:opacity-90'} text-white`}>
+                                                {loading ? '...' : 'Sell'}
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
+                            );
+                        }}
+                    </ConnectButton.Custom>
                 </div>
 
                 <div className="text-xs space-y-1.5 pt-3 border-t border-border dark:border-zinc-800">
@@ -494,6 +555,12 @@ const OrderPanel = ({
                     </div>
                 </div>
             </div>
+
+            {/* Faucet Modal ajoutée à la fin */}
+            <FaucetDialog 
+                open={isFaucetOpen} 
+                onOpenChange={setIsFaucetOpen} 
+            />
         </div>
     );
 };
