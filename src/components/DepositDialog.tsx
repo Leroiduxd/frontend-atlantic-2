@@ -10,6 +10,8 @@ import { useToast } from '@/hooks/use-toast';
 import { BanknoteArrowDown, BanknoteArrowUp, ArrowRight, Wallet, Droplet, ShieldCheck } from 'lucide-react'; 
 import { useAccount, useWriteContract, useReadContracts, usePublicClient } from 'wagmi'; 
 import { parseUnits, formatUnits } from 'viem';
+// 🛑 NOUVEAU : Import du ConnectButton de RainbowKit
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 // --- CONSTANTES DU SMART CONTRACT ---
 const VAULT_ADDRESS = '0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0';
@@ -31,7 +33,6 @@ const ERC20_ABI = [
 type TransactionMode = 'deposit' | 'withdraw';
 type Step = 'faucet' | 'approve' | 'trade';
 
-// 🛑 CORRECTION ICI : Ajout de open et onOpenChange
 interface DepositDialogProps {
     className?: string;
     open?: boolean;
@@ -41,7 +42,6 @@ interface DepositDialogProps {
 export const DepositDialog = ({ className, open: controlledOpen, onOpenChange: controlledOnOpenChange }: DepositDialogProps) => {
   const [internalOpen, setInternalOpen] = useState(false);
   
-  // 🛑 CORRECTION ICI : Gestion intelligente de l'état (Contrôlé par le parent ou interne)
   const isControlled = typeof controlledOpen !== 'undefined';
   const open = isControlled ? controlledOpen : internalOpen;
   
@@ -210,8 +210,6 @@ export const DepositDialog = ({ className, open: controlledOpen, onOpenChange: c
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       
-      {/* 🛑 CORRECTION ICI : N'affiche le bouton que si ce n'est pas géré par le parent FaucetDialog.
-          Et bloque la propagation du clic (e.stopPropagation) pour éviter la fermeture d'un parent. */}
       {!isControlled && (
           <DialogTrigger asChild>
             <Button 
@@ -226,7 +224,7 @@ export const DepositDialog = ({ className, open: controlledOpen, onOpenChange: c
       )}
       
       <DialogContent 
-        onClick={(e) => e.stopPropagation()} // 🛑 Bloque aussi les clics à l'intérieur de la modale
+        onClick={(e) => e.stopPropagation()} 
         className={`w-[650px] max-w-none p-0 shadow-xl rounded-lg min-h-[450px] overflow-hidden bg-white dark:bg-zinc-950 dark:border-zinc-800`}
       >
         {!isConnected ? (
@@ -235,9 +233,17 @@ export const DepositDialog = ({ className, open: controlledOpen, onOpenChange: c
                 <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-2">Wallet Connection Required</h3>
                 <p className="text-gray-600 dark:text-gray-400 mb-6">Please connect your wallet to deposit or withdraw funds.</p>
                 <div className="mx-auto w-fit">
-                   <Button onClick={showConnectWalletToast} className="bg-trading-blue hover:bg-trading-blue/90 dark:text-white">
-                    Connect Wallet
-                   </Button> 
+                   {/* 🛑 CORRECTION ICI : Remplacement par le ConnectButton de RainbowKit */}
+                   <ConnectButton.Custom>
+                       {({ openConnectModal }) => (
+                           <Button 
+                               onClick={openConnectModal} 
+                               className="bg-trading-blue hover:bg-trading-blue/90 dark:text-white"
+                           >
+                               Connect Wallet
+                           </Button>
+                       )}
+                   </ConnectButton.Custom>
                 </div>
             </div>
         ) : (

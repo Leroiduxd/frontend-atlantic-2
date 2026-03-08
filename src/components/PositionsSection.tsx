@@ -11,6 +11,10 @@ import { usePaymaster } from "@/hooks/useBrokexPaymaster";
 import { ChevronDown, ChevronUp, Plus, Minus, Check, X, Pencil } from 'lucide-react'; 
 import { useAccount, useWriteContract } from 'wagmi';
 
+// 🛑 NOUVEAU: On importe directement tes fonctions de calcul du marché !
+// (Ajuste le chemin "@/hooks/useopen" si ton fichier est ailleurs)
+import { getMarketKindFromId, getMarketStatusUTC } from "@/hooks/useopen";
+
 // --- MAPPING DES PAIRES ---
 const PAIR_MAP: { [key: number]: string } = {
   6004:'aapl_usd', 6005:'amzn_usd', 6010:'coin_usd', 6003:'goog_usd',
@@ -25,7 +29,6 @@ const PAIR_MAP: { [key: number]: string } = {
 };
 
 // --- MAPPING DES TAILLES DE LOTS ---
-// Valeur d'actif réel pour 1 Lot
 const ASSET_LOT_SIZES: Record<number, number> = {
     0: 0.01,    // btc_usdt
     1: 0.01,     // eth_usdt
@@ -39,7 +42,6 @@ const ASSET_LOT_SIZES: Record<number, number> = {
     90: 10,     // sui_usdt
     5500: 0.01, // xau_usd
     5501: 0.1,  // xag_usd
-    // Tous les autres (Forex, Stocks) = 1 par défaut
 };
 
 // --- CONFIGURATION SMART CONTRACT ---
@@ -178,7 +180,6 @@ const PositionCard: React.FC<PositionCardProps> = ({
     const tpPriceFormatted = position.tp_x6 > 0 ? formatAssetPrice(position.tp_x6, position.asset_id, symbolMap) : 'None';
     const slPriceFormatted = position.sl_x6 > 0 ? formatAssetPrice(position.sl_x6, position.asset_id, symbolMap) : 'None';
     
-    // Marge toujours affichée en fallback de la DB, mais on privilégie l'affichage pur
     const marginUsdText = `$${formatUSD(position.margin_usd6)}`;
     const symbolDisplay = getDisplaySymbol(position.assetSymbol, position.asset_id);
     const baseSymbol = position.assetSymbol.split('/')[0];
@@ -225,7 +226,6 @@ const PositionCard: React.FC<PositionCardProps> = ({
                         <span className="text-xs font-semibold text-gray-900 dark:text-zinc-200">{marginUsdText}</span>
                     </div>
 
-                    {/* EDITION SL EN LIGNE */}
                     <div>
                         <div className="flex items-center gap-1.5 mb-0.5">
                             <span className="text-zinc-500 block text-[10px] uppercase font-normal">Stop Loss (SL)</span>
@@ -248,7 +248,6 @@ const PositionCard: React.FC<PositionCardProps> = ({
                         )}
                     </div>
 
-                    {/* EDITION TP EN LIGNE */}
                     <div>
                         <div className="flex items-center gap-1.5 mb-0.5">
                             <span className="text-zinc-500 block text-[10px] uppercase font-normal">Take Profit (TP)</span>
@@ -285,15 +284,15 @@ const PositionCard: React.FC<PositionCardProps> = ({
                     {!isClosing ? (
                         <Button
                             onClick={() => { setIsClosing(true); setLotsInput(maxLots); }}
-                            disabled={isActionDisabled || isEditingStops}
+                            disabled={isActionDisabled || isEditingStops || !position.isMarketOpen} // 🛑 DÉSACTIVÉ SI FERMÉ
                             size="sm"
                             className={`h-8 px-3 text-[12px] font-semibold border rounded-md transition duration-150 w-full 
                                 bg-white border-gray-300 hover:bg-gray-50 
-                                dark:bg-zinc-900 dark:border-zinc-700 dark:text-red-400 dark:hover:bg-zinc-800
-                                ${isActionDisabled ? 'text-zinc-500' : 'text-red-600'}`}
+                                dark:bg-zinc-900 dark:border-zinc-700 dark:hover:bg-zinc-800
+                                ${isActionDisabled || !position.isMarketOpen ? 'text-zinc-500 cursor-not-allowed' : 'text-red-600 dark:text-red-400'}`}
                             variant="outline"
                         >
-                            Close Position
+                            {!position.isMarketOpen ? "Market Closed" : "Close Position"}
                         </Button>
                     ) : (
                         <div className="flex items-center justify-between h-8 bg-white dark:bg-zinc-900 border border-red-300 dark:border-red-900/50 rounded-md px-1 shadow-sm w-full">
@@ -447,6 +446,10 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
     const cancelled: any[] = [];
 
     rawTrades.forEach((t) => {
+        // 🛑 NOUVEAU: On vérifie l'ouverture du marché spécifiquement pour cet asset_id !
+        const kind = getMarketKindFromId(Number(t.assetId));
+        const isMarketOpen = kind ? getMarketStatusUTC(kind).isOpen : true;
+
         const position = {
             id: Number(t.id),
             asset_id: Number(t.assetId),
@@ -469,7 +472,6 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
         const assetInfo = assetSymbolMap[position.asset_id];
         const assetWs = assetMap[position.asset_id];
         
-        // --- LOGIQUE DE CONVERSION DES LOTS ---
         const assetMultiplier = ASSET_LOT_SIZES[position.asset_id] || 1;
         const remainingLots = position.lots - position.closed_lots;
         const displaySize = remainingLots * assetMultiplier;
@@ -486,10 +488,11 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
         const enriched = {
             ...position,
             assetSymbol: assetInfo ? assetInfo.symbol : `Asset #${position.asset_id}`,
-            size: parseFloat(displaySize.toFixed(6)).toString(), // Nettoyage de l'affichage
+            size: parseFloat(displaySize.toFixed(6)).toString(),
             priceDecimals: assetInfo ? assetInfo.priceDecimals : 2,
             priceStep: assetInfo ? assetInfo.priceStep : 0.01,
             currentPrice: assetWs?.currentPrice ? assetWs.currentPrice.toFixed(assetInfo?.priceDecimals || 2) : '---',
+            isMarketOpen: isMarketOpen, // 🛑 INJECTÉ ICI
             liq_x6: liqPriceX6,
             calculatedPNL: null as number | null,
             calculatedROE: null as number | null,
@@ -502,10 +505,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                 const entryP = position.entry_x6 / 1000000;
                 const direction = position.long_side ? 1 : -1;
                 
-                // PnL pur basé sur l'Asset Size sans dépendre de marginUsdc
                 const pnl = displaySize * (currentP - entryP) * direction;
-                
-                // Marge estimée pour calculer le ROE
                 const estimatedMargin = (displaySize * entryP) / position.leverage_x;
                 const roe = estimatedMargin > 0 ? (pnl / estimatedMargin) * 100 : 0;
                 
@@ -520,17 +520,14 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
             const entryP = position.entry_x6 / 1000000;
             const direction = position.long_side ? 1 : -1;
             
-            // On calcule sur la taille fermée (ou totale si pas de précision)
             const closedLots = position.closed_lots > 0 ? position.closed_lots : position.lots;
             const closedDisplaySize = closedLots * assetMultiplier;
             
             if (entryP > 0) {
-                // PnL pur de clôture 
                 const pnl = closedDisplaySize * (closeP - entryP) * direction;
                 enriched.pnl_usd6 = pnl * 1000000; 
             }
 
-            // On s'assure que la taille affichée est celle qui a été fermée
             enriched.size = parseFloat(closedDisplaySize.toFixed(6)).toString();
             closed.push(enriched);
         }
@@ -544,7 +541,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
 
     return { openPositions: open, pendingOrders: pending, closedPositions: closed, cancelledOrders: cancelled };
 
-  }, [rawTrades, assetMap, assetSymbolMap]); // Retire convertLotsToDisplay des dépendances
+  }, [rawTrades, assetMap, assetSymbolMap]);
 
   const filterList = (list: any[]) => {
     if (filterMode === "all" || currentAssetId === null) return list;
@@ -758,7 +755,6 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                            )}
                            {activeTab === "closedPositions" && (
                               <tr>
-                                {/* Colonnes optimisées pour le PnL */}
                                 <th className="pl-4 pr-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Pair</th>
                                 <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Date</th>
                                 <th className="px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-zinc-500">Side</th>

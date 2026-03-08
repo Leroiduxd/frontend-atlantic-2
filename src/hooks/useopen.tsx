@@ -28,16 +28,9 @@ const toMinutes = (hhmm: string) => {
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + (m || 0);
 };
-const dayMinute = (d: Date) => d.getUTCHours() * 60 + d.getUTCMinutes();
-const weekMinute = (d: Date) =>
-  d.getUTCDay() * 1440 + d.getUTCHours() * 60 + d.getUTCMinutes();
+
 const addMinutes = (d: Date, mins: number) => new Date(d.getTime() + mins * 60000);
 const startOfUTCDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-const startOfUTCWeek = (d: Date) => {
-  const sod = startOfUTCDay(d);
-  const dow = sod.getUTCDay(); // 0=Sun
-  return addMinutes(sod, -dow * 1440);
-};
 
 export const getMarketKindFromId = (id: number): MarketKind | null => {
   if (id >= 0 && id < 1000) return "crypto";
@@ -51,113 +44,114 @@ export const getMarketKindFromId = (id: number): MarketKind | null => {
 export interface MarketSchedule {
   kind: MarketKind;
   alwaysOpen?: boolean;
-  dailyWindowsUTC?: { [day: number]: Array<[number, number]> }; // 0=Sun..6=Sat, minutes
-  weeklyWindowsUTC?: Array<[number, number]>; // minutes since Sun 00:00
+  dailyWindowsUTC?: { [day: number]: Array<[number, number]> }; // 0=Sun..6=Sat, minutes (ex: 1440 = minuit)
 }
 
-/** Règles (UTC) */
+/** * Règles (UTC) - RÉÉCRITES POUR ÊTRE 100% PRÉCISES JOUR PAR JOUR
+ */
 export const getMarketScheduleUTC = (kind: MarketKind): MarketSchedule => {
   switch (kind) {
     case "crypto":
       return { kind, alwaysOpen: true };
+      
     case "forex":
-      // Sun 22:00 → Fri 21:00 (continu)
+      // Forex : Sun 22:00 → Fri 21:00 UTC (Continu)
       return {
         kind,
-        weeklyWindowsUTC: [[0 * 1440 + toMinutes("22:00"), 5 * 1440 + toMinutes("21:00")]],
-      };
-    case "commodities":
-      // Sun 23:00 → Fri 22:00 ; pause journalière 22:00–23:00
-      return {
-        kind,
-        weeklyWindowsUTC: [[0 * 1440 + toMinutes("23:00"), 5 * 1440 + toMinutes("22:00")]],
         dailyWindowsUTC: {
-          0: [], // Sun (ouvre via weekly à 23:00)
-          1: [[toMinutes("00:00"), toMinutes("22:00")]],
-          2: [[toMinutes("00:00"), toMinutes("22:00")]],
-          3: [[toMinutes("00:00"), toMinutes("22:00")]],
-          4: [[toMinutes("00:00"), toMinutes("22:00")]],
-          5: [[toMinutes("00:00"), toMinutes("22:00")]],
-          6: [], // Sat
+          0: [[toMinutes("22:00"), 1440]], // Dimanche: 22h à Minuit (1440)
+          1: [[0, 1440]], // Lundi: 24h/24
+          2: [[0, 1440]], // Mardi: 24h/24
+          3: [[0, 1440]], // Mercredi: 24h/24
+          4: [[0, 1440]], // Jeudi: 24h/24
+          5: [[0, toMinutes("21:00")]], // Vendredi: Minuit à 21h
+          6: [], // Samedi: Fermé
         },
       };
-    case "stocks":
-      // Mon–Fri 14:30–21:00
+
+    case "commodities":
+    case "indices":
+      // Sun 23:00 → Fri 22:00 UTC ; Avec pause tous les jours de 22:00 à 23:00
       return {
         kind,
         dailyWindowsUTC: {
-          0: [],
+          0: [[toMinutes("23:00"), 1440]], // Dimanche: 23h à Minuit
+          1: [[0, toMinutes("22:00")], [toMinutes("23:00"), 1440]], // Lundi: 0h-22h et 23h-Minuit
+          2: [[0, toMinutes("22:00")], [toMinutes("23:00"), 1440]], // Mardi: idem
+          3: [[0, toMinutes("22:00")], [toMinutes("23:00"), 1440]], // Mercredi: idem
+          4: [[0, toMinutes("22:00")], [toMinutes("23:00"), 1440]], // Jeudi: idem
+          5: [[0, toMinutes("22:00")]], // Vendredi: 0h à 22h. (Pas de réouverture à 23h)
+          6: [], // Samedi: Fermé
+        },
+      };
+
+    case "stocks":
+      // Actions : Mon–Fri 14:30–21:00 UTC
+      return {
+        kind,
+        dailyWindowsUTC: {
+          0: [], // Dimanche: Fermé
           1: [[toMinutes("14:30"), toMinutes("21:00")]],
           2: [[toMinutes("14:30"), toMinutes("21:00")]],
           3: [[toMinutes("14:30"), toMinutes("21:00")]],
           4: [[toMinutes("14:30"), toMinutes("21:00")]],
           5: [[toMinutes("14:30"), toMinutes("21:00")]],
-          6: [],
-        },
-      };
-    case "indices":
-      // Sun 23:00 → Fri 22:00 ; pause journalière 22:00–23:00
-      return {
-        kind,
-        weeklyWindowsUTC: [[0 * 1440 + toMinutes("23:00"), 5 * 1440 + toMinutes("22:00")]],
-        dailyWindowsUTC: {
-          0: [],
-          1: [[toMinutes("00:00"), toMinutes("22:00")]],
-          2: [[toMinutes("00:00"), toMinutes("22:00")]],
-          3: [[toMinutes("00:00"), toMinutes("22:00")]],
-          4: [[toMinutes("00:00"), toMinutes("22:00")]],
-          5: [[toMinutes("00:00"), toMinutes("22:00")]],
-          6: [],
+          6: [], // Samedi: Fermé
         },
       };
   }
 };
 
-/** Intersections helper */
-const intersect = (a: [number, number], b: [number, number]): [number, number] | null => {
-  const s = Math.max(a[0], b[0]);
-  const e = Math.min(a[1], b[1]);
-  return s < e ? [s, e] : null;
-};
-
-/** Génère des intervalles d’ouverture (Date UTC) pour les N prochains jours */
+/** * CORRECTION CRITIQUE : Génère et FUSIONNE les intervalles d’ouverture pour les N prochains jours 
+ */
 const buildOpenIntervals = (kind: MarketKind, from: Date, daysAhead = 8): Array<[Date, Date]> => {
   const sched = getMarketScheduleUTC(kind);
+  
   if (sched.alwaysOpen) {
     const start = startOfUTCDay(from);
     return [[start, addMinutes(start, daysAhead * 1440)]];
   }
 
-  const out: Array<[Date, Date]> = [];
-  const weekStart = startOfUTCWeek(from);
+  const rawIntervals: Array<[Date, Date]> = [];
 
-  // Préparer weekly windows (en minutes depuis weekStart)
-  const weekly: Array<[number, number]> =
-    sched.weeklyWindowsUTC?.map(w => w) ?? [[0, 7 * 1440]]; // si pas de weekly, tout le temps
-
+  // 1. On génère tous les intervalles jour par jour
   for (let d = 0; d < daysAhead; d++) {
-    const dayDate = addMinutes(startOfUTCDay(from), d * 1440);
-    const weekday = dayDate.getUTCDay();
-    const baseDayRanges: Array<[number, number]> =
-      sched.dailyWindowsUTC
-        ? (sched.dailyWindowsUTC[weekday] || []).map(([s, e]) => [d * 1440 + s, d * 1440 + e] as [number, number])
-        : [[d * 1440 + 0, d * 1440 + 1440]]; // si pas de daily: 24h
+    const dayDate = addMinutes(startOfUTCDay(from), d * 1440); // Date absolue à minuit UTC
+    const weekday = dayDate.getUTCDay(); // 0 = Dimanche, etc.
+    
+    // On récupère les minutes d'ouverture pour ce jour précis
+    const dayRanges = sched.dailyWindowsUTC?.[weekday] || [];
 
-    // Intersecter chaque baseDayRange avec weekly windows étendues sur l’horizon
-    for (const [ds, de] of baseDayRanges) {
-      for (const [ws, we] of weekly) {
-        const iv = intersect([ds, de], [ws, we]);
-        if (iv) {
-          const absStart = addMinutes(weekStart, iv[0]); // Date
-          const absEnd = addMinutes(weekStart, iv[1]);
-          out.push([absStart, absEnd]);
-        }
-      }
+    for (const [startMin, endMin] of dayRanges) {
+        rawIntervals.push([
+            new Date(dayDate.getTime() + startMin * 60000), // Heure d'ouverture absolue
+            new Date(dayDate.getTime() + endMin * 60000)    // Heure de fermeture absolue
+        ]);
     }
   }
-  // Trier au cas où
-  out.sort((a, b) => a[0].getTime() - b[0].getTime());
-  return out;
+
+  // 2. On s'assure qu'ils sont bien triés du plus ancien au plus récent
+  rawIntervals.sort((a, b) => a[0].getTime() - b[0].getTime());
+
+  // 3. LA MAGIE EST ICI : Fusion des intervalles adjacents
+  // Évite que le marché "ferme" à 23h59:59 pour rouvrir à 00h00:00 (Cas du Forex)
+  const mergedIntervals: Array<[Date, Date]> = [];
+  
+  for (const [start, end] of rawIntervals) {
+    if (mergedIntervals.length === 0) {
+        mergedIntervals.push([start, end]);
+    } else {
+        const lastMerged = mergedIntervals[mergedIntervals.length - 1];
+        // Si cet intervalle commence exactement à la fin du précédent (ou avant), on les soude
+        if (start.getTime() <= lastMerged[1].getTime()) {
+            lastMerged[1] = new Date(Math.max(lastMerged[1].getTime(), end.getTime()));
+        } else {
+            mergedIntervals.push([start, end]);
+        }
+    }
+  }
+
+  return mergedIntervals;
 };
 
 export interface MarketStatus {
@@ -175,6 +169,8 @@ export const getMarketStatusUTC = (kind: MarketKind, at: Date = new Date()): Mar
   for (const [start, end] of intervals) {
     const s = start.getTime();
     const e = end.getTime();
+    
+    // Si on est DANS l'intervalle
     if (now >= s && now < e) {
       return {
         isOpen: true,
@@ -182,6 +178,7 @@ export const getMarketStatusUTC = (kind: MarketKind, at: Date = new Date()): Mar
         timeUntilCloseMs: e - now,
       };
     }
+    // Si l'intervalle est dans le FUTUR (comme ils sont triés, c'est la prochaine ouverture)
     if (now < s) {
       return {
         isOpen: false,
@@ -190,21 +187,12 @@ export const getMarketStatusUTC = (kind: MarketKind, at: Date = new Date()): Mar
       };
     }
   }
-  // Si rien trouvé (très rare), recommencer semaine suivante
-  const nextWeek = addMinutes(startOfUTCDay(at), 7 * 1440);
-  const again = buildOpenIntervals(kind, nextWeek, 8);
-  if (again.length) {
-    const [start] = again[0];
-    return {
-      isOpen: false,
-      nextOpen: start,
-      timeUntilOpenMs: start.getTime() - now,
-    };
-  }
+  
+  // Si rien trouvé (Sécurité, ne devrait jamais arriver avec une recherche sur 8 jours)
   return { isOpen: false, nextOpen: null };
 };
 
-/** Hook WS identique + enrichi si besoin */
+/** Hook WS (Intact) */
 export const useWebSocket = () => {
   const [data, setData] = useState<WebSocketMessage>({});
   const [connected, setConnected] = useState(false);
@@ -279,7 +267,7 @@ export const getAssetsByCategory = (data: WebSocketMessage) => {
   };
 };
 
-/** (optionnel) label lisible */
+/** Label lisible mis à jour */
 export const getReadableHoursUTC = (kind: MarketKind): string => {
   switch (kind) {
     case "crypto":
@@ -287,10 +275,9 @@ export const getReadableHoursUTC = (kind: MarketKind): string => {
     case "forex":
       return "Sun 22:00 → Fri 21:00 UTC (continu)";
     case "commodities":
+    case "indices":
       return "Sun 23:00 → Fri 22:00 UTC ; pause 22:00–23:00 chaque jour";
     case "stocks":
       return "Mon–Fri 14:30–21:00 UTC";
-    case "indices":
-      return "Sun 23:00 → Fri 22:00 UTC ; pause 22:00–23:00 chaque jour";
   }
 };

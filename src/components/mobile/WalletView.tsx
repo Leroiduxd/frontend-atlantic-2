@@ -38,6 +38,11 @@ const ERC20_ABI = [
     { "inputs": [{ "internalType": "address", "name": "spender", "type": "address" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }], "name": "approve", "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }], "stateMutability": "nonpayable", "type": "function" }
 ] as const;
 
+// Utilitaire pour formater joliment les nombres (ex: 1,000,000.00)
+const formatNumber = (num: number) => {
+    return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 export const WalletView = () => {
   const { address, isConnected } = useAccount();
   const chainId = useChainId(); 
@@ -80,6 +85,7 @@ export const WalletView = () => {
   const maxDeposit = walletBalanceDisplay;
 
   const handleSetMax = () => {
+    // On met le max sans les virgules pour l'input form
     setAmount(mode === 'withdraw' ? maxWithdraw.toFixed(2) : maxDeposit.toFixed(2)); 
   };
 
@@ -189,7 +195,7 @@ export const WalletView = () => {
         </div>
       )}
 
-      {/* HEADER ÉPURÉ (Même style que Leaderboard) */}
+      {/* HEADER ÉPURÉ */}
       <div className="px-5 pt-6 pb-2">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white leading-none">
             Wallet
@@ -197,23 +203,29 @@ export const WalletView = () => {
         <p className="text-sm text-slate-500 dark:text-zinc-400 mt-1">Manage your trading capital.</p>
       </div>
 
-      {/* 1. BALANCE CARD (Style "Token Sale" du Leaderboard) */}
-      <div className="mx-5 my-4 bg-white dark:bg-[#111] rounded-[20px] border border-slate-200 dark:border-zinc-800 shadow-sm overflow-hidden">
+      {/* 1. BALANCE CARD */}
+      <div className="mx-5 my-4 bg-white dark:bg-[#111] rounded-[20px] border border-slate-200 dark:border-zinc-800 shadow-sm overflow-hidden flex-shrink-0">
         <div className="p-6 text-center border-b border-slate-100 dark:border-zinc-800/60">
             <p className="text-[10px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest mb-2">Vault Equity</p>
-            <div className="text-4xl font-mono font-bold text-slate-900 dark:text-white">
-                ${vaultTotalDisplay.toFixed(2)}
+            {/* CORRECTION DU TEXTE COUPÉ : ajout de leading-normal, py-1, text-3xl sur mobile, et truncate */}
+            <div className="text-3xl sm:text-4xl font-mono font-bold text-slate-900 dark:text-white leading-normal py-1 px-2 w-full truncate">
+                ${formatNumber(vaultTotalDisplay)}
             </div>
         </div>
         
         <div className="flex divide-x divide-slate-100 dark:divide-zinc-800/60 p-4">
-          <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="flex-1 flex flex-col items-center justify-center min-w-0 px-2">
             <span className="text-[10px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-widest mb-1">Available</span>
-            <span className="font-mono text-sm font-medium text-slate-900 dark:text-white">${vaultAvailableDisplay.toFixed(2)}</span>
+            {/* TRUNCATE POUR LES GROS CHIFFRES */}
+            <span className="font-mono text-sm font-medium text-slate-900 dark:text-white w-full text-center truncate">
+              ${formatNumber(vaultAvailableDisplay)}
+            </span>
           </div>
-          <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="flex-1 flex flex-col items-center justify-center min-w-0 px-2">
             <span className="text-[10px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-widest mb-1">Locked</span>
-            <span className="font-mono text-sm font-medium text-slate-900 dark:text-white">${vaultLockedDisplay.toFixed(2)}</span>
+            <span className="font-mono text-sm font-medium text-slate-900 dark:text-white w-full text-center truncate">
+              ${formatNumber(vaultLockedDisplay)}
+            </span>
           </div>
         </div>
       </div>
@@ -246,13 +258,14 @@ export const WalletView = () => {
         {/* Formulaire & Info Wallet */}
         <div className="space-y-4">
           
-          <div className="flex justify-between items-center px-1">
-            <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
+          <div className="flex justify-between items-center px-1 w-full overflow-hidden gap-2">
+            <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400 flex-shrink-0">
                 <Wallet className="w-4 h-4" />
                 <span className="text-xs font-medium">Wallet Balance</span>
             </div>
-            <span className="font-mono text-sm font-bold text-slate-900 dark:text-white">
-                {walletBalanceDisplay.toFixed(2)} USDT
+            {/* TRUNCATE POUR EMPECHER LE DEBORDEMENT DES MILLIARDS */}
+            <span className="font-mono text-sm font-bold text-slate-900 dark:text-white truncate">
+                {formatNumber(walletBalanceDisplay)} USDT
             </span>
           </div>
           
@@ -274,12 +287,11 @@ export const WalletView = () => {
                 Max
               </button>
             </div>
-            <div className="text-[10px] font-medium text-right text-slate-400 dark:text-zinc-500 px-1">
-              Available to {mode}: <span className="font-mono">{mode === 'withdraw' ? maxWithdraw.toFixed(2) : maxDeposit.toFixed(2)}</span>
+            <div className="text-[10px] font-medium text-right text-slate-400 dark:text-zinc-500 px-1 truncate mt-1">
+              Available to {mode}: <span className="font-mono">{mode === 'withdraw' ? formatNumber(maxWithdraw) : formatNumber(maxDeposit)}</span>
             </div>
           </div>
 
-          {/* CHANGEMENT DYNAMIQUE DU BOUTON ICI */}
           {isWrongNetwork ? (
              <Button 
               onClick={() => switchChain({ chainId: TARGET_CHAIN_ID })}
@@ -292,7 +304,10 @@ export const WalletView = () => {
                onClick={handleTransaction}
                disabled={isTransacting || isApproving || !amount || parseFloat(amount) <= 0 || (mode === 'deposit' && parseFloat(amount) > walletBalanceDisplay) || (mode === 'withdraw' && parseFloat(amount) > maxWithdraw)}
                className={`w-full h-12 text-sm font-bold shadow-none transition-transform active:scale-[0.98] rounded-xl uppercase tracking-wider
-                 ${needsApproval ? 'bg-amber-500 hover:bg-amber-600 text-black' : 'bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black'}`}
+                 ${needsApproval 
+                    ? 'bg-amber-500 hover:bg-amber-600 text-black' 
+                    : 'bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-zinc-200 dark:text-black disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500' 
+                 }`}
              >
                {(isTransacting || isApproving) ? <Loader2 className="animate-spin w-5 h-5" /> : buttonText}
              </Button>
@@ -301,7 +316,7 @@ export const WalletView = () => {
       </div>
 
       {/* 3. FAUCET JOURNALIER */}
-      <div className="px-5 mt-8 pb-8">
+      <div className="px-5 mt-8 pb-8 flex-shrink-0">
           <div className="bg-slate-50 dark:bg-[#111] border border-slate-200 dark:border-zinc-800/60 rounded-[20px] p-5 shadow-sm">
             <div className="flex items-center gap-2 mb-2">
                 <Droplet className="w-4 h-4 text-blue-500" />
