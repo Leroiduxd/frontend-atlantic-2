@@ -94,7 +94,7 @@ export const LeaderboardMobile = () => {
 
     try {
         // 1. Appel à ta nouvelle API pour générer/récupérer l'image
-        const response = await fetch(`https://api.brokex.trade/trader/${connectedAddress}/share`);
+        const response = await fetch(`https://api.brokex.trade/trader/${connectedAddress}/card.png`);
         if (!response.ok) throw new Error("Failed to fetch share image");
         
         // 2. Conversion de la réponse en fichier (Blob)
