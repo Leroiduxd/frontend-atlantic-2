@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Search, TrendingUp, Wallet, ArrowLeft, Target, Trophy, Share2, Loader2 } from 'lucide-react';
 import { useWebSocket, getAssetsByCategory } from '@/hooks/useWebSocket';
 import { useAccount } from 'wagmi';
@@ -31,8 +31,6 @@ export const LeaderboardMobile = () => {
 
   // States pour la capture d'écran
   const [isSharing, setIsSharing] = useState(false);
-  const [unrealizedForShare, setUnrealizedForShare] = useState(0);
-  const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const fetchBoard = async () => {
@@ -89,53 +87,24 @@ export const LeaderboardMobile = () => {
       setView('trader');
   };
 
-  // --- LOGIQUE DE PARTAGE ---
+  // --- LOGIQUE DE PARTAGE MISE À JOUR ---
   const handleShareStats = async () => {
     if (!connectedAddress || !userRanks) return;
     setIsSharing(true);
 
     try {
-        const resIds = await fetch(`https://api.brokex.trade/trader/${connectedAddress}/ids?state=open`);
-        const { ids } = await resIds.json();
+        // 1. Appel à ta nouvelle API pour générer/récupérer l'image
+        const response = await fetch(`https://api.brokex.trade/trader/${connectedAddress}/share`);
+        if (!response.ok) throw new Error("Failed to fetch share image");
         
-        let totalUnrealized = 0;
-        if (ids && ids.length > 0) {
-            const detailPromises = ids.map((id: number) => fetch(`https://api.brokex.trade/trade/${id}`).then(r => r.json()));
-            const trades = await Promise.all(detailPromises);
-            
-            trades.filter(t => !t.error).forEach(t => {
-                const assetMultiplier = ASSET_LOT_SIZES[t.assetId] || 1;
-                const size = (t.lotSize - (t.closedLotSize || 0)) * assetMultiplier;
-                const entryP = formatE6(t.openPrice);
-                
-                const categories = getAssetsByCategory(wsData || {});
-                const match = Object.values(categories).flat().find((a: any) => a.id === t.assetId);
-                const wsPrice = match && match.currentPrice ? parseFloat(match.currentPrice) : 0;
+        // 2. Conversion de la réponse en fichier (Blob)
+        const blob = await response.blob();
+        const file = new File([blob], 'brokex-stats.png', { type: blob.type || 'image/png' });
 
-                if (wsPrice > 0) {
-                    totalUnrealized += size * (wsPrice - entryP) * (t.isLong ? 1 : -1);
-                }
-            });
-        }
-        setUnrealizedForShare(totalUnrealized);
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const html2canvas = (await import('html2canvas')).default;
-
-        if (!printRef.current) return;
-        const canvas = await html2canvas(printRef.current, { 
-            backgroundColor: '#0a0a0a',
-            scale: 2, 
-            useCORS: true
-        });
-
-        const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
-        if (!blob) throw new Error("Erreur de génération d'image");
-        const file = new File([blob], 'brokex-stats.png', { type: 'image/png' });
-
+        // 3. Texte par défaut pour le tweet/message
         const shareText = `Check out my trading stats on Brokex! 🏆\n\n📈 Rank: #${userRanks.pnl.rank}\n💰 Realized PnL: $${formatCurrency(formatE6(userRanks.pnl.value))}\n\nTrade now on Brokex! #Crypto #Trading #DeFi`;
 
+        // 4. Utilisation de l'API de partage native (ouvre le menu avec X/Twitter, WhatsApp, etc. sur mobile)
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
             await navigator.share({
                 title: 'My Brokex Stats',
@@ -143,18 +112,21 @@ export const LeaderboardMobile = () => {
                 files: [file]
             });
         } else {
-            const url = canvas.toDataURL('image/png');
+            // Fallback si le navigateur ne supporte pas le partage de fichiers (ex: certains navigateurs Desktop)
+            // On télécharge l'image puis on ouvre Twitter
+            const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = 'brokex-stats.png';
             a.click();
+            window.URL.revokeObjectURL(url);
             
             const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
             window.open(tweetUrl, '_blank');
         }
     } catch (err) {
         console.error("Share error:", err);
-        alert("Failed to generate image.");
+        alert("Failed to fetch or share image.");
     } finally {
         setIsSharing(false);
     }
@@ -282,62 +254,6 @@ export const LeaderboardMobile = () => {
           )}
       </div>
 
-      {/* ========================================================================= */}
-      {/* CARTE CACHÉE POUR LA GÉNÉRATION DE L'IMAGE (INCHANGÉE)                    */}
-      {/* ========================================================================= */}
-      {userRanks && connectedAddress && (
-        <div className="fixed top-[-9999px] left-[-9999px]">
-            <div ref={printRef} className="w-[600px] h-[750px] bg-[#0a0a0a] border-4 border-zinc-800 p-10 flex flex-col justify-between font-sans text-white relative overflow-hidden">
-                <div className="absolute top-[-100px] right-[-100px] w-[300px] h-[300px] bg-blue-600 rounded-full blur-[120px] opacity-20 pointer-events-none"></div>
-                <div className="absolute bottom-[-100px] left-[-100px] w-[300px] h-[300px] bg-amber-500 rounded-full blur-[120px] opacity-10 pointer-events-none"></div>
-
-                <div className="relative z-10">
-                    <div className="flex items-center justify-between mb-12">
-                        <h1 className="text-4xl font-black tracking-tighter text-white">BROKEX</h1>
-                        <span className="px-4 py-1.5 bg-zinc-900 border border-zinc-700 text-zinc-300 text-sm font-mono uppercase tracking-widest rounded-md">Trader Profile</span>
-                    </div>
-
-                    <div className="mb-12">
-                        <p className="text-zinc-500 text-lg uppercase font-bold tracking-widest mb-2">Wallet</p>
-                        <p className="text-5xl font-mono font-bold text-blue-500">{shortenAddress(connectedAddress)}</p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-8 mb-12">
-                        <div className="bg-[#111] border border-zinc-800 rounded-2xl p-6">
-                            <p className="text-zinc-500 text-sm uppercase font-bold tracking-widest mb-3">Realized PnL</p>
-                            <p className={`text-4xl font-mono font-bold ${formatE6(userRanks.pnl.value) >= 0 ? 'text-blue-500' : 'text-red-500'}`}>
-                                {formatE6(userRanks.pnl.value) >= 0 ? '+' : ''}{formatUSDExact(formatE6(userRanks.pnl.value))}
-                            </p>
-                            <p className="text-zinc-400 font-mono mt-2 text-sm">Rank: #{userRanks.pnl.rank}</p>
-                        </div>
-                        
-                        <div className="bg-[#111] border border-zinc-800 rounded-2xl p-6">
-                            <p className="text-zinc-500 text-sm uppercase font-bold tracking-widest mb-3">Unrealized PnL</p>
-                            <p className={`text-4xl font-mono font-bold ${unrealizedForShare >= 0 ? 'text-blue-500' : 'text-red-500'}`}>
-                                {unrealizedForShare >= 0 ? '+' : ''}{formatUSDExact(unrealizedForShare)}
-                            </p>
-                            <p className="text-zinc-400 font-mono mt-2 text-sm">Live Status</p>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-8">
-                        <div>
-                            <p className="text-zinc-500 text-sm uppercase font-bold tracking-widest mb-2">Total Volume</p>
-                            <p className="text-3xl font-mono font-bold text-white">{formatCurrency(formatE6(userRanks.volume.value))}</p>
-                        </div>
-                        <div>
-                            <p className="text-zinc-500 text-sm uppercase font-bold tracking-widest mb-2">Total Trades</p>
-                            <p className="text-3xl font-mono font-bold text-white">{userRanks.activity.value}</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="relative z-10 border-t border-zinc-800 pt-6 mt-auto">
-                    <p className="text-center text-zinc-500 font-mono text-sm">Generated on brokex.trade • {new Date().toLocaleDateString()}</p>
-                </div>
-            </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -377,4 +293,4 @@ function TabButton({ active, onClick, label }: any) {
       {label}
     </button>
   );
-}
+} 
