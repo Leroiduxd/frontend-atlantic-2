@@ -1,3 +1,5 @@
+"use client";
+
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -9,10 +11,12 @@ import { config } from './config/wagmi';
 import '@rainbow-me/rainbowkit/styles.css';
 import { SpiceFlowProvider } from "@spicenet-io/spiceflow-ui";
 import "@spicenet-io/spiceflow-ui/styles.css";
+
+// Pages
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
+import TraderPage from "./pages/TraderPage"; // 👈 On importe la nouvelle page trader
 
-// 👇 1. AJOUTE CET IMPORT (le fichier que tu as créé tout à l'heure)
 import { ThemeProvider } from "@/components/theme-provider";
 
 const queryClient = new QueryClient();
@@ -21,9 +25,6 @@ const App = () => (
   <QueryClientProvider client={queryClient}> 
     <WagmiProvider config={config}> 
       <RainbowKitProvider> 
-        
-        {/* 👇 2. INSERE LE THEME PROVIDER ICI */}
-        {/* Cela permet d'injecter la classe 'dark' ou 'light' dans ton HTML */}
         <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme" attribute="class">
           
           <SpiceFlowProvider 
@@ -38,7 +39,13 @@ const App = () => (
               <Sonner />
               <BrowserRouter>
                 <Routes>
+                  {/* Route principale (Trading, Dashboard, etc.) */}
                   <Route path="/" element={<Index />} />
+                  
+                  {/* Route dynamique pour les profils Traders 🏆 */}
+                  <Route path="/trader/:address" element={<TraderPage />} />
+                  
+                  {/* Route de secours 404 */}
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </BrowserRouter>
@@ -46,8 +53,6 @@ const App = () => (
           </SpiceFlowProvider>
 
         </ThemeProvider>
-        {/* 👆 FIN DU THEME PROVIDER */}
-
       </RainbowKitProvider>
     </WagmiProvider>
   </QueryClientProvider>
