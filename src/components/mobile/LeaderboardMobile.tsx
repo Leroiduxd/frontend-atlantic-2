@@ -1,15 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, TrendingUp, Wallet, ArrowLeft, Target, Trophy, Share2, Loader2 } from 'lucide-react';
-import { useWebSocket, getAssetsByCategory } from '@/hooks/useWebSocket';
+import { Search, ArrowLeft, Trophy, Share2, Loader2 } from 'lucide-react';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAccount } from 'wagmi';
 import TraderExplorerView from "@/components/TraderExplorerView";
-
-// --- MAPPING POUR LE CALCUL NON RÉALISÉ ---
-const ASSET_LOT_SIZES: Record<number, number> = {
-    0: 0.01, 1: 0.1, 2: 1, 3: 1000, 5: 1, 10: 1, 14: 100, 15: 1000, 16: 100, 90: 10, 5500: 0.01, 5501: 0.1,
-};
 
 const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: "compact", maximumFractionDigits: 2 }).format(val);
 const formatUSDExact = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 }).format(val);
@@ -28,8 +23,6 @@ export const LeaderboardMobile = () => {
   const [leaderboardData, setLeaderboardData] = useState<any>(null);
   const [userRanks, setUserRanks] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-
-  // States pour la capture d'écran
   const [isSharing, setIsSharing] = useState(false);
 
   useEffect(() => {
@@ -46,10 +39,9 @@ export const LeaderboardMobile = () => {
 
   useEffect(() => {
     const fetchUserRanks = async () => {
-      const addr = connectedAddress; 
-      if (!addr) return;
+      if (!connectedAddress) return;
       try {
-        const res = await fetch(`https://api.brokex.trade/trader/${addr}/ranks`);
+        const res = await fetch(`https://api.brokex.trade/trader/${connectedAddress}/ranks`);
         const json = await res.json();
         if (json.success) setUserRanks(json.ranks);
       } catch (e) { console.error(e); }
@@ -72,8 +64,6 @@ export const LeaderboardMobile = () => {
   const handleSearch = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const query = searchQuery.trim();
-    if (!query) return;
-
     if (query.startsWith('0x') && query.length > 10) {
       setTargetTrader(query);
       setView('trader');
@@ -87,46 +77,43 @@ export const LeaderboardMobile = () => {
       setView('trader');
   };
 
-  // --- LOGIQUE DE PARTAGE MISE À JOUR ---
+  // --- LOGIQUE DE PARTAGE SUR X ---
   const handleShareStats = async () => {
     if (!connectedAddress || !userRanks) return;
     setIsSharing(true);
 
     try {
-        // 1. Appel à ta nouvelle API pour générer/récupérer l'image
-        const response = await fetch(`https://api.brokex.trade/trader/${connectedAddress}/card.png`);
-        if (!response.ok) throw new Error("Failed to fetch share image");
+        // 1. URL de l'image générée par votre API
+        const imageUrl = `https://api.brokex.trade/trader/${connectedAddress}/card.png`;
         
-        // 2. Conversion de la réponse en fichier (Blob)
-        const blob = await response.blob();
-        const file = new File([blob], 'brokex-stats.png', { type: blob.type || 'image/png' });
+        // 2. Texte du Tweet
+        const shareText = `Check out my trading stats on Brokex! 🏆\n\n📈 Rank: #${userRanks.pnl.rank}\n💰 Realized PnL: $${formatCurrency(formatE6(userRanks.pnl.value))}\n\nExplore my profile: ${imageUrl}\n\nTrade now on @brokexfi ! #Crypto #Trading #DeFi`;
 
-        // 3. Texte par défaut pour le tweet/message
-        const shareText = `Check out my trading stats on Brokex! 🏆\n\n📈 Rank: #${userRanks.pnl.rank}\n💰 Realized PnL: $${formatCurrency(formatE6(userRanks.pnl.value))}\n\nTrade now on Brokex! #Crypto #Trading #DeFi`;
+        // 3. Détection de la plateforme (Mobile vs Desktop)
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-        // 4. Utilisation de l'API de partage native (ouvre le menu avec X/Twitter, WhatsApp, etc. sur mobile)
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({
-                title: 'My Brokex Stats',
-                text: shareText,
-                files: [file]
-            });
+        if (isMobile) {
+            // Tentative d'ouverture de l'application X directement via deep link
+            const appUrl = `twitter://post?message=${encodeURIComponent(shareText)}`;
+            const webUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+
+            const start = Date.now();
+            window.location.href = appUrl;
+
+            // Si l'application ne s'ouvre pas après 500ms, on bascule sur la version web
+            setTimeout(() => {
+                if (Date.now() - start < 1000) {
+                    window.open(webUrl, '_blank');
+                }
+            }, 500);
         } else {
-            // Fallback si le navigateur ne supporte pas le partage de fichiers (ex: certains navigateurs Desktop)
-            // On télécharge l'image puis on ouvre Twitter
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'brokex-stats.png';
-            a.click();
-            window.URL.revokeObjectURL(url);
-            
-            const tweetUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
-            window.open(tweetUrl, '_blank');
+            // Sur Ordinateur : Ouverture de la version Web de X dans une popup
+            const tweetUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+            window.open(tweetUrl, '_blank', 'width=550,height=420');
         }
     } catch (err) {
         console.error("Share error:", err);
-        alert("Failed to fetch or share image.");
+        alert("Failed to share on X.");
     } finally {
         setIsSharing(false);
     }
@@ -135,7 +122,6 @@ export const LeaderboardMobile = () => {
   return (
     <div className="flex flex-col h-full w-full bg-white dark:bg-[#0a0a0a] text-slate-900 dark:text-white font-sans transition-colors overflow-hidden">
       
-      {/* HEADER ÉPURÉ */}
       <div className="flex-none px-5 pt-6 pb-4">
         <div className="flex items-center gap-3 mb-4">
           {view === 'trader' ? (
@@ -173,12 +159,9 @@ export const LeaderboardMobile = () => {
         )}
       </div>
 
-      {/* CONTENU PRINCIPAL */}
       <div className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {view === 'list' ? (
               <div className="flex flex-col">
-                  
-                  {/* USER RANKS (Si connecté) - STYLE "TOKEN SALE" CARD */}
                   {userRanks && (
                       <div className="mx-5 mb-6 bg-white dark:bg-[#111] rounded-[20px] border border-slate-200 dark:border-zinc-800 shadow-sm overflow-hidden">
                           <div className="flex divide-x divide-slate-100 dark:divide-zinc-800/60 p-5">
@@ -192,20 +175,18 @@ export const LeaderboardMobile = () => {
                                 className="w-full flex items-center justify-center gap-2 py-3 text-sm font-bold text-slate-900 dark:text-white bg-slate-100 dark:bg-[#1c1c1e] hover:bg-slate-200 dark:hover:bg-zinc-800 rounded-xl transition-colors disabled:opacity-70"
                             >
                                 {isSharing ? <Loader2 size={16} className="animate-spin" /> : <Share2 size={16} />}
-                                {isSharing ? 'Generating Image...' : 'Share My Stats'}
+                                {isSharing ? 'Connecting to X...' : 'Share on X'}
                             </button>
                           </div>
                       </div>
                   )}
 
-                  {/* TABS (STYLE PILL TOGGLE) */}
                   <div className="mx-5 mb-4 flex bg-slate-100 dark:bg-[#1c1c1e] p-1 rounded-full sticky top-0 z-10">
                     <TabButton active={activeTab === 'pnl'} onClick={() => setActiveTab('pnl')} label="PnL" />
                     <TabButton active={activeTab === 'volume'} onClick={() => setActiveTab('volume')} label="Volume" />
                     <TabButton active={activeTab === 'trades'} onClick={() => setActiveTab('trades')} label="Trades" />
                   </div>
 
-                  {/* LISTE */}
                   <div className="flex flex-col px-5 pb-8">
                     {loading ? (
                         <div className="py-10 flex justify-center">
@@ -214,7 +195,6 @@ export const LeaderboardMobile = () => {
                     ) : filteredList.map((t: any, i: number) => {
                         const val = activeTab === 'pnl' ? t.pnl : activeTab === 'volume' ? t.volume : t.totalTrades;
                         const isPositive = typeof val === 'number' && val >= 0;
-
                         const pnlColorClass = activeTab === 'pnl' 
                             ? (isPositive ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400') 
                             : 'text-slate-900 dark:text-white';
@@ -240,7 +220,6 @@ export const LeaderboardMobile = () => {
                                         </div>
                                     </div>
                                 </div>
-                                
                                 <div className={`text-right font-mono font-bold text-sm ${pnlColorClass}`}>
                                     {activeTab === 'trades' ? val : (activeTab === 'pnl' ? (isPositive ? '+' : '') + formatUSDExact(formatE6(val)) : formatCurrency(formatE6(val)))}
                                 </div>
@@ -253,29 +232,19 @@ export const LeaderboardMobile = () => {
               <TraderExplorerView address={targetTrader} wsData={wsData} />
           )}
       </div>
-
     </div>
   );
 };
 
-// --- COMPOSANTS UI ADAPTÉS À LA NOUVELLE DA ---
-
 function RankMiniCard({ title, rank, value, isPnl }: any) {
   const isPositive = !isPnl || !value.includes('-');
-  
-  const valueColor = isPnl 
-    ? (isPositive ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400') 
-    : 'text-slate-500 dark:text-zinc-400';
+  const valueColor = isPnl ? (isPositive ? 'text-blue-600 dark:text-blue-400' : 'text-red-600 dark:text-red-400') : 'text-slate-500 dark:text-zinc-400';
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center">
-      <div className="text-[10px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-widest mb-1">
-        {title}
-      </div>
+      <div className="text-[10px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-widest mb-1">{title}</div>
       <div className="text-2xl font-black text-slate-900 dark:text-white">#{rank}</div>
-      <div className={`text-xs font-mono font-medium mt-1 ${valueColor}`}>
-          {value}
-      </div>
+      <div className={`text-xs font-mono font-medium mt-1 ${valueColor}`}>{value}</div>
     </div>
   );
 }
@@ -285,12 +254,10 @@ function TabButton({ active, onClick, label }: any) {
     <button 
       onClick={onClick} 
       className={`flex-1 py-2 text-sm font-semibold rounded-full transition-all duration-200 ${
-        active 
-          ? 'bg-white dark:bg-[#0a0a0a] shadow-sm text-slate-900 dark:text-white' 
-          : 'text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200'
+        active ? 'bg-white dark:bg-[#0a0a0a] shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:text-zinc-400 dark:hover:text-zinc-200'
       }`}
     >
       {label}
     </button>
   );
-} 
+}
