@@ -12,8 +12,10 @@ import { ChevronDown, ChevronUp, Plus, Minus, Check, X, Pencil } from 'lucide-re
 import { useAccount, useWriteContract } from 'wagmi';
 
 // 🛑 NOUVEAU: On importe directement tes fonctions de calcul du marché !
-// (Ajuste le chemin "@/hooks/useopen" si ton fichier est ailleurs)
 import { getMarketKindFromId, getMarketStatusUTC } from "@/hooks/useopen";
+
+// --- CONSTANTE WAD ---
+const WAD = 1000000000000000000n;
 
 // --- MAPPING DES PAIRES ---
 const PAIR_MAP: { [key: number]: string } = {
@@ -96,6 +98,59 @@ const getMarketProof = async (assetId: number): Promise<Hash> => {
     if (!response.ok) { throw new Error(`Failed to fetch proof`); }
     const data = await response.json();
     return data.proof as Hash; 
+};
+
+// 🛑 NOUVEAU: Fonction utilitaire pour calculer le Spread de sortie dynamique
+// 🛑 MODIFIÉ: Fonction utilitaire pour calculer le Spread de sortie dynamique
+// Elle reproduit volontairement la logique (le "bug") du Smart Contract pour être 100% synchrone.
+const calculateExitSpreadDecimal = (assetId: number, isLongTrade: boolean, lotSize: number, exposuresMap: any, baseSpreadsMap: any): number => {
+    try {
+        const assetExpo = exposuresMap[assetId] || { longLots: "0", shortLots: "0" };
+        const baseSpreadStr = baseSpreadsMap[assetId] || "0";
+        
+        const base = BigInt(baseSpreadStr);
+        let L = BigInt(assetExpo.longLots || "0");
+        let S = BigInt(assetExpo.shortLots || "0");
+        const size = BigInt(Math.floor(lotSize));
+
+        // ---------------------------------------------------------
+        // REPRODUCTION EXACTE DU SMART CONTRACT
+        // Dans le contrat, à la fermeture : calculateSpread(a, e, !t.isLong, false, size)
+        // ---------------------------------------------------------
+        const isContractLong = !isLongTrade; // Le contrat reçoit l'inverse du trade
+
+        // Le contrat exécute : if (isLong) { ... else L -= size } else { ... else S -= size }
+        if (isContractLong) {
+            // Donc si on ferme un Short (isLongTrade = false), le contrat diminue les Longs
+            L -= size;
+        } else {
+            // Et si on ferme un Long (isLongTrade = true), le contrat diminue les Shorts
+            S -= size;
+        }
+
+        if (L < 0n) L = 0n;
+        if (S < 0n) S = 0n;
+
+        const numerator = L > S ? L - S : S - L;
+        const denominator = L + S + 2n;
+
+        if (denominator === 0n) {
+            return Number(base) / Number(WAD);
+        }
+
+        const r = (numerator * WAD) / denominator;
+        const p = (r * r) / WAD;
+
+        // La règle de dominance telle qu'écrite dans le contrat:
+        // bool dominant = (L > S && isLong) || (S > L && !isLong);
+        const dominant = (L > S && isContractLong) || (S > L && !isContractLong);
+
+        const finalSpreadWad = dominant ? (base * (WAD + 3n * p)) / WAD : base;
+        return Number(finalSpreadWad) / Number(WAD);
+    } catch (e) {
+        console.error("Erreur de calcul du spread", e);
+        return 0;
+    }
 };
 
 type TabType = "openPositions" | "pendingOrders" | "closedPositions" | "cancelledOrders";
@@ -284,7 +339,7 @@ const PositionCard: React.FC<PositionCardProps> = ({
                     {!isClosing ? (
                         <Button
                             onClick={() => { setIsClosing(true); setLotsInput(maxLots); }}
-                            disabled={isActionDisabled || isEditingStops || !position.isMarketOpen} // 🛑 DÉSACTIVÉ SI FERMÉ
+                            disabled={isActionDisabled || isEditingStops || !position.isMarketOpen} 
                             size="sm"
                             className={`h-8 px-3 text-[12px] font-semibold border rounded-md transition duration-150 w-full 
                                 bg-white border-gray-300 hover:bg-gray-50 
@@ -369,6 +424,11 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   const [rawTrades, setRawTrades] = useState<any[]>([]);
   const [isLoadingTrades, setIsLoadingTrades] = useState(false);
 
+  // 🛑 NOUVEAU: États globaux pour le calcul du Spread et Funding
+  const [exposures, setExposures] = useState<any>({});
+  const [baseSpreads, setBaseSpreads] = useState<any>({});
+  const [liveFundings, setLiveFundings] = useState<any>({});
+
   const { address } = useAccount();
   const { toast } = useToast();
   
@@ -397,7 +457,35 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
         );
         
         const trades = await Promise.all(detailPromises);
-        setRawTrades(trades.filter(t => !t.error));
+        const validTrades = trades.filter(t => !t.error);
+        setRawTrades(validTrades);
+
+        // 🛑 NOUVEAU: Fetch simultané des données dynamiques (Exposures, Spreads)
+        const [expoRes, spreadRes] = await Promise.all([
+            fetch('https://api.brokex.trade/exposures'),
+            fetch('https://api.brokex.trade/spreads/base')
+        ]);
+        const expoJson = await expoRes.json();
+        const spreadJson = await spreadRes.json();
+        
+        if (expoJson.success) setExposures(expoJson.data);
+        if (spreadJson.success) setBaseSpreads(spreadJson.data);
+
+        // 🛑 NOUVEAU: Fetch des live Fundings uniquement pour les actifs ayant des trades ouverts
+        const activeAssetIds = Array.from(new Set(validTrades.filter(t => t.state === 1).map(t => Number(t.assetId))));
+        const fundingPromises = activeAssetIds.map(id => 
+            fetch(`https://api.brokex.trade/funding/live/${id}`).then(r => r.json()).catch(() => null)
+        );
+        const fundingResults = await Promise.all(fundingPromises);
+        
+        const fundingsMap: any = {};
+        fundingResults.forEach((res) => {
+            if (res && res.success && res.data) {
+                fundingsMap[res.data.assetId] = res.data;
+            }
+        });
+        setLiveFundings(fundingsMap);
+
     } catch (e) {
         console.error("Error fetching trades from API:", e);
     } finally {
@@ -446,7 +534,6 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
     const cancelled: any[] = [];
 
     rawTrades.forEach((t) => {
-        // 🛑 NOUVEAU: On vérifie l'ouverture du marché spécifiquement pour cet asset_id !
         const kind = getMarketKindFromId(Number(t.assetId));
         const isMarketOpen = kind ? getMarketStatusUTC(kind).isOpen : true;
 
@@ -492,7 +579,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
             priceDecimals: assetInfo ? assetInfo.priceDecimals : 2,
             priceStep: assetInfo ? assetInfo.priceStep : 0.01,
             currentPrice: assetWs?.currentPrice ? assetWs.currentPrice.toFixed(assetInfo?.priceDecimals || 2) : '---',
-            isMarketOpen: isMarketOpen, // 🛑 INJECTÉ ICI
+            isMarketOpen: isMarketOpen, 
             liq_x6: liqPriceX6,
             calculatedPNL: null as number | null,
             calculatedROE: null as number | null,
@@ -505,11 +592,39 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
                 const entryP = position.entry_x6 / 1000000;
                 const direction = position.long_side ? 1 : -1;
                 
-                const pnl = displaySize * (currentP - entryP) * direction;
-                const estimatedMargin = (displaySize * entryP) / position.leverage_x;
-                const roe = estimatedMargin > 0 ? (pnl / estimatedMargin) * 100 : 0;
+                // 🛑 NOUVEAU: 1. Calcul du Spread de Sortie et du Prix de Sortie exact
+                const spreadDecimal = calculateExitSpreadDecimal(position.asset_id, position.long_side, position.lots, exposures, baseSpreads);
+                const spreadAmount = currentP * spreadDecimal;
+                const exitPrice = position.long_side ? currentP - spreadAmount : currentP + spreadAmount;
                 
-                enriched.calculatedPNL = pnl;
+                // 🛑 NOUVEAU: 2. Calcul du PNL brut (Raw PNL)
+                const rawPnl = displaySize * (exitPrice - entryP) * direction;
+
+                // 🛑 NOUVEAU: 3. Calcul des Frais de Funding (Funding Fee en USD)
+                let fundingFeeUsd = 0;
+                const fundingInfo = liveFundings[position.asset_id];
+                
+                if (fundingInfo && t.fundingIndex) {
+                    const currentLiveIndexStr = position.long_side ? fundingInfo.liveLongIndex : fundingInfo.liveShortIndex;
+                    const currentLiveIndex = BigInt(currentLiveIndexStr || "0");
+                    const tradeEntryIndex = BigInt(t.fundingIndex || "0");
+                    
+                    if (currentLiveIndex > tradeEntryIndex) {
+                        const deltaIndexWad = currentLiveIndex - tradeEntryIndex;
+                        const deltaIndexDecimal = Number(deltaIndexWad) / Number(WAD);
+                        
+                        // Appliquer le deltaIndex sur la valeur notionnelle de sortie
+                        const exitNotional = exitPrice * displaySize;
+                        fundingFeeUsd = exitNotional * deltaIndexDecimal;
+                    }
+                }
+
+                // 🛑 NOUVEAU: 4. PNL Réel & ROE
+                const finalPnl = rawPnl - fundingFeeUsd;
+                const estimatedMargin = (displaySize * entryP) / position.leverage_x;
+                const roe = estimatedMargin > 0 ? (finalPnl / estimatedMargin) * 100 : 0;
+                
+                enriched.calculatedPNL = finalPnl;
                 enriched.calculatedROE = roe;
             }
             open.push(enriched);
@@ -541,7 +656,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
 
     return { openPositions: open, pendingOrders: pending, closedPositions: closed, cancelledOrders: cancelled };
 
-  }, [rawTrades, assetMap, assetSymbolMap]);
+  }, [rawTrades, assetMap, assetSymbolMap, exposures, baseSpreads, liveFundings]);
 
   const filterList = (list: any[]) => {
     if (filterMode === "all" || currentAssetId === null) return list;
