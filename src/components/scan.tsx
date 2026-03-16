@@ -6,6 +6,7 @@ import { useWebSocket, getAssetsByCategory } from '@/hooks/useWebSocket';
 import { BottomBar } from "@/components/BottomBar";
 import { useTheme } from "next-themes";
 import { AssetIcon } from "@/hooks/useAssetIcon"; 
+import ExposureTreemap from '@/components/ExposureTreemap'; // Ajuste le chemin selon ton dossier
 
 // --- IMPORTS DES COMPOSANTS EXTERNES ---
 import TraderExplorerView from "@/components/TraderExplorerView";
@@ -461,8 +462,14 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
                 </table>
             </div>
         </div>
+        
 
       </div>
+      <ExposureTreemap 
+    exposures={exposures} 
+    currentPrices={currentPrices} 
+    onNavigateAsset={onNavigateAsset} 
+/>
     </>
   );
 }
