@@ -29,6 +29,8 @@ const PAIR_MAP: { [key: number]: string } = {
   6034:'nike_usd', 6113:'spdia_usd', 6114:'qqqm_usd', 6115:'iwm_usd'
 };
 
+const WAD = 1000000000000000000n;
+
 // --- UTILITAIRES ---
 const formatCurrency = (val: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: "compact", maximumFractionDigits: 2 }).format(val);
 const formatCompact = (val: number) => new Intl.NumberFormat('en-US', { notation: "compact", maximumFractionDigits: 2 }).format(val);
@@ -189,22 +191,57 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
 
   const [latestTrades, setLatestTrades] = useState<any[]>([]);
   const [topMarketIndex, setTopMarketIndex] = useState(0);
+  const [avgFundings, setAvgFundings] = useState<any>({});
+  const [liveFundings, setLiveFundings] = useState<any>({});
 
   useEffect(() => {
     const fetchApiData = async () => {
       try {
-        const [tradersRes, tradesRes, expRes, volRes, maxIdRes] = await Promise.all([
+        // AJOUT : fetch des fundings moyens (/all)
+        const [tradersRes, tradesRes, expRes, volRes, maxIdRes, avgFundRes] = await Promise.all([
           fetch('https://api.brokex.trade/stats/total-traders').catch(() => null),
           fetch('https://api.brokex.trade/stats/open-trades').catch(() => null),
           fetch('https://api.brokex.trade/exposures').catch(() => null),
           fetch('https://api.brokex.trade/stats/volume-24h').catch(() => null),
-          fetch('https://api.brokex.trade/stats/max-trade-id').catch(() => null)
+          fetch('https://api.brokex.trade/stats/max-trade-id').catch(() => null),
+          fetch('https://api.brokex.trade/stats/funding/all').catch(() => null) 
         ]);
 
         if (tradersRes) tradersRes.json().then(d => d.success && setTotalTraders(d.totalTraders));
         if (tradesRes) tradesRes.json().then(d => d.success && setOpenTradesStats(d.data));
-        if (expRes) expRes.json().then(d => d.success && setExposures(d.data));
         if (volRes) volRes.json().then(d => d.success && setVolume24h(d.volume24h));
+        
+        // 1. Sauvegarde des fundings moyens
+        if (avgFundRes) {
+            const d = await avgFundRes.json();
+            if (d.success) setAvgFundings(d.data);
+        }
+
+        // 2. Traitement des expositions et fetch FIXÉ des live fundings
+        if (expRes) {
+            expRes.json().then(async (d) => {
+                if (d.success) {
+                    setExposures(d.data);
+                    
+                    const activeIds = Object.keys(d.data);
+                    const livePromises = activeIds.map(id => 
+                        fetch(`https://api.brokex.trade/funding/live/${id}`)
+                            .then(r => r.json())
+                            .then(res => ({ id: Number(id), data: res.data })) // On force l'injection de l'ID ici
+                            .catch(() => null)
+                    );
+                    const liveResults = await Promise.all(livePromises);
+                    
+                    const liveMap: any = {};
+                    liveResults.forEach(item => {
+                        if (item && item.data) {
+                            liveMap[item.id] = item.data;
+                        }
+                    });
+                    setLiveFundings(liveMap);
+                }
+            });
+        }
 
         if (maxIdRes) {
             const data = await maxIdRes.json();
@@ -222,6 +259,7 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
         }
       } catch (error) { console.error("Erreur API Explorer:", error); }
     };
+    
     fetchApiData();
     const interval = setInterval(fetchApiData, 15000); 
     return () => clearInterval(interval);
@@ -235,6 +273,7 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
     return prices;
   }, [wsData]);
 
+  // --- LE CALCUL GLOBAL DU DASHBOARD (Avec Funding PnL !) ---
   const dashboardStats = useMemo(() => {
     let longExpUSD = 0; let shortExpUSD = 0; let longCount = 0; let shortCount = 0;
     let totalLeverage = 0; let totalPositions = 0; let globalUnrealizedPnl = 0;
@@ -263,8 +302,34 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
       const avgShortPrice = shortLots > 0 ? (formatE6(exp.shortValueSum) / (shortLots * lotSize)) : 0;
 
       if (price > 0) {
-          globalUnrealizedPnl += (longLots > 0 ? (price - avgLongPrice) * (longLots * lotSize) : 0);
-          globalUnrealizedPnl += (shortLots > 0 ? (avgShortPrice - price) * (shortLots * lotSize) : 0);
+          // 1. Calcul du PnL Brut
+          const rawLongPnl = longLots > 0 ? (price - avgLongPrice) * (longLots * lotSize) : 0;
+          const rawShortPnl = shortLots > 0 ? (avgShortPrice - price) * (shortLots * lotSize) : 0;
+
+          // 2. Calcul du Funding Owed
+          let longFundingFeeUsd = 0;
+          let shortFundingFeeUsd = 0;
+
+          const liveFunding = liveFundings[assetId] || liveFundings[assetId.toString()];
+          const avgFunding = avgFundings[assetId] || avgFundings[assetId.toString()];
+
+          if (liveFunding && avgFunding) {
+              const liveLong = BigInt(liveFunding.liveLongIndex || "0");
+              const liveShort = BigInt(liveFunding.liveShortIndex || "0");
+              const avgLongIdx = BigInt(avgFunding.longAvgFundingIndex || "0");
+              const avgShortIdx = BigInt(avgFunding.shortAvgFundingIndex || "0");
+
+              // Différence d'index rapportée à la taille totale en USD
+              const deltaLong = Number(liveLong - avgLongIdx) / Number(WAD);
+              longFundingFeeUsd = deltaLong * assetLongUSD;
+
+              const deltaShort = Number(liveShort - avgShortIdx) / Number(WAD);
+              shortFundingFeeUsd = deltaShort * assetShortUSD;
+          }
+
+          // 3. Déduction du Funding sur le PnL global
+          globalUnrealizedPnl += (rawLongPnl - longFundingFeeUsd);
+          globalUnrealizedPnl += (rawShortPnl - shortFundingFeeUsd);
       }
 
       if (assetLongUSD > 0 || assetShortUSD > 0) {
@@ -285,9 +350,9 @@ function OverviewView({ wsData, onNavigateTrader, onNavigateAsset }: { wsData: a
     return { 
         longExpUSD, shortExpUSD, longCount, shortCount, totalPositions, 
         avgLev, totalOI, longPercent, shortPercent, globalUnrealizedPnl, 
-        topMarkets: marketsArray // TOUS les marchés sont retournés
+        topMarkets: marketsArray 
     };
-  }, [openTradesStats, exposures, currentPrices]);
+  }, [openTradesStats, exposures, currentPrices, avgFundings, liveFundings]);
 
   useEffect(() => {
       if (dashboardStats.topMarkets.length === 0) return;
