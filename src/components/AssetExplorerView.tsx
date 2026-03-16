@@ -1,13 +1,15 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { TrendingUp, TrendingDown, ShieldAlert } from 'lucide-react';
+import { TrendingUp, TrendingDown, ShieldAlert, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useWebSocket, getAssetsByCategory } from '@/hooks/useWebSocket';
 import { useTheme } from "next-themes";
 import { AssetIcon } from "@/hooks/useAssetIcon";
 import { format } from "date-fns";
 
 // --- CONSTANTES ---
+const WAD = 1000000000000000000n;
+
 const ASSET_LOT_SIZES: Record<number, number> = {
   0: 0.01, 1: 0.01, 2: 1, 3: 1000, 5: 1, 10: 1, 14: 100, 15: 1000, 16: 100, 90: 10, 5500: 0.01, 5501: 0.1,
 };
@@ -55,22 +57,32 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
     const [exposure, setExposure] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Nouveaux états pour les listes de trades
+    // États Funding
+    const [liveFunding, setLiveFunding] = useState<any>(null);
+    const [avgFunding, setAvgFunding] = useState<any>(null);
+
+    // États Trades
     const [activeTab, setActiveTab] = useState<"open" | "closed" | "orders">("open");
     const [rawOpenTrades, setRawOpenTrades] = useState<any[]>([]);
     const [rawClosedTrades, setRawClosedTrades] = useState<any[]>([]);
     const [rawOrders, setRawOrders] = useState<any[]>([]);
 
+    // États Pagination
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState(15);
+
     useEffect(() => {
         const fetchAssetData = async () => {
             setIsLoading(true);
             try {
-                const [tradesRes, expRes, openRes, closedRes, ordersRes] = await Promise.all([
+                const [tradesRes, expRes, openRes, closedRes, ordersRes, liveFundingRes, avgFundingRes] = await Promise.all([
                     fetch('https://api.brokex.trade/stats/open-trades'),
                     fetch('https://api.brokex.trade/exposures'),
                     fetch(`https://api.brokex.trade/trades/open/${assetId}`),
                     fetch(`https://api.brokex.trade/trades/closed/${assetId}`),
-                    fetch(`https://api.brokex.trade/trades/orders/${assetId}`)
+                    fetch(`https://api.brokex.trade/trades/orders/${assetId}`),
+                    fetch(`https://api.brokex.trade/funding/live/${assetId}`).then(r => r.json()).catch(() => null),
+                    fetch(`https://api.brokex.trade/stats/funding/${assetId}`).then(r => r.json()).catch(() => null)
                 ]);
                 
                 const tData = await tradesRes.json();
@@ -92,7 +104,9 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
                     setExposure({ longLots: 0, shortLots: 0, longValueSum: 0, shortValueSum: 0, longMaxProfit: 0, shortMaxProfit: 0, longMaxLoss: 0, shortMaxLoss: 0 });
                 }
 
-                // Hydratation des listes de trades
+                if (liveFundingRes && liveFundingRes.success) setLiveFunding(liveFundingRes.data);
+                if (avgFundingRes && avgFundingRes.success) setAvgFunding(avgFundingRes.data);
+
                 if (openData.success) setRawOpenTrades(openData.data);
                 if (closedData.success) setRawClosedTrades(closedData.data);
                 if (ordersData.success) setRawOrders(ordersData.data);
@@ -102,7 +116,10 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
         fetchAssetData();
     }, [assetId]);
 
-    // Calcul des PnL pour chaque liste de trades
+    // Reset de la page quand on change d'onglet
+    useEffect(() => { setCurrentPage(1); }, [activeTab]);
+
+    // Calculs et PnL
     const { openTrades, closedTrades, orderTrades } = useMemo(() => {
         const getAssetWsPrice = (aId: number) => {
             if (!wsData) return 0;
@@ -119,8 +136,26 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
                 const wsPrice = getAssetWsPrice(t.assetId);
 
                 let pnl = 0;
+                let fundingFeeUsd = 0;
+
                 if (t.state === 1 && wsPrice > 0) { // Open
-                    pnl = size * (wsPrice - entryP) * (t.isLong ? 1 : -1);
+                    const rawPnl = size * (wsPrice - entryP) * (t.isLong ? 1 : -1);
+                    
+                    // Calcul Funding individuel
+                    if (liveFunding && t.fundingIndex) {
+                        const currentLiveIndexStr = t.isLong ? liveFunding.liveLongIndex : liveFunding.liveShortIndex;
+                        const currentLiveIndex = BigInt(currentLiveIndexStr || "0");
+                        const tradeEntryIndex = BigInt(t.fundingIndex || "0");
+                        
+                        if (currentLiveIndex > tradeEntryIndex) {
+                            const deltaIndexWad = currentLiveIndex - tradeEntryIndex;
+                            const deltaIndexDecimal = Number(deltaIndexWad) / Number(WAD);
+                            const exitNotional = wsPrice * size;
+                            fundingFeeUsd = exitNotional * deltaIndexDecimal;
+                        }
+                    }
+                    pnl = rawPnl - fundingFeeUsd;
+
                 } else if (t.state === 2) { // Closed
                     const closeSize = (t.closedLotSize || t.lotSize) * assetMultiplier;
                     pnl = closeSize * (formatE6(t.closePrice) - entryP) * (t.isLong ? 1 : -1);
@@ -135,9 +170,9 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
             closedTrades: processTrades(rawClosedTrades), 
             orderTrades: processTrades(rawOrders) 
         };
-    }, [rawOpenTrades, rawClosedTrades, rawOrders, wsData]);
+    }, [rawOpenTrades, rawClosedTrades, rawOrders, wsData, liveFunding]);
 
-
+    // Métriques d'exposition globale
     const metrics = useMemo(() => {
         if (!exposure || !stats) return null;
         
@@ -155,8 +190,33 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
         const match = Object.values(categories).flat().find(a => a.id === assetId);
         const currentPrice = match && match.currentPrice ? parseFloat(match.currentPrice) : 0;
 
-        const longPnl = longLotsRaw > 0 ? (currentPrice - avgLongPrice) * longAssetSize : 0;
-        const shortPnl = shortLotsRaw > 0 ? (avgShortPrice - currentPrice) * shortAssetSize : 0;
+        // PnL Brut
+        const rawLongPnl = longLotsRaw > 0 ? (currentPrice - avgLongPrice) * longAssetSize : 0;
+        const rawShortPnl = shortLotsRaw > 0 ? (avgShortPrice - currentPrice) * shortAssetSize : 0;
+
+        // Calcul des Frais de Funding Globaux
+        let longFundingFeeUsd = 0;
+        let shortFundingFeeUsd = 0;
+
+        if (liveFunding && avgFunding && currentPrice > 0) {
+            const liveLong = BigInt(liveFunding.liveLongIndex || "0");
+            const liveShort = BigInt(liveFunding.liveShortIndex || "0");
+            const avgLongIdx = BigInt(avgFunding.longAvgFundingIndex || "0");
+            const avgShortIdx = BigInt(avgFunding.shortAvgFundingIndex || "0");
+
+            if (liveLong > avgLongIdx) {
+                const deltaLong = Number(liveLong - avgLongIdx) / Number(WAD);
+                longFundingFeeUsd = deltaLong * (currentPrice * longAssetSize);
+            }
+            if (liveShort > avgShortIdx) {
+                const deltaShort = Number(liveShort - avgShortIdx) / Number(WAD);
+                shortFundingFeeUsd = deltaShort * (currentPrice * shortAssetSize);
+            }
+        }
+
+        // PnL Net
+        const longPnl = rawLongPnl - longFundingFeeUsd;
+        const shortPnl = rawShortPnl - shortFundingFeeUsd;
 
         const totalAssetSize = longAssetSize + shortAssetSize;
         const longLotsPercent = totalAssetSize > 0 ? (longAssetSize / totalAssetSize) * 100 : 50;
@@ -167,11 +227,15 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
         return { 
             avgLongPrice, avgShortPrice, currentPrice, longPnl, shortPnl, 
             totalPnl: longPnl + shortPnl, longAssetSize, shortAssetSize, 
-            longLotsPercent, shortLotsPercent, baseSymbol 
+            longLotsPercent, shortLotsPercent, baseSymbol,
+            longFundingFeeUsd, shortFundingFeeUsd
         };
-    }, [exposure, stats, wsData, assetId]);
+    }, [exposure, stats, wsData, assetId, liveFunding, avgFunding]);
 
-    const currentData = activeTab === "open" ? openTrades : activeTab === "closed" ? closedTrades : orderTrades;
+    // Données Actuelles & Pagination
+    const fullDataList = activeTab === "open" ? openTrades : activeTab === "closed" ? closedTrades : orderTrades;
+    const totalPages = Math.ceil(fullDataList.length / itemsPerPage);
+    const paginatedData = fullDataList.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
     if (isLoading) return <div className="p-12 text-center text-slate-500 font-mono text-sm w-full animate-pulse">Loading market data...</div>;
     if (!exposure || (!exposure.longLots && !exposure.shortLots && rawOpenTrades.length === 0)) return <div className="p-12 text-center text-slate-500 font-mono text-sm w-full">No active exposure for this asset.</div>;
@@ -193,7 +257,7 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
                         </div>
                         <div>
                             <h2 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{symbol} Market Data</h2>
-                            <p className="text-sm text-slate-500 dark:text-zinc-500 font-mono mt-1">Real-time exposure and global PnL analysis.</p>
+                            <p className="text-sm text-slate-500 dark:text-zinc-500 font-mono mt-1">Real-time exposure and global net PnL analysis.</p>
                         </div>
                     </div>
                     <div className="text-left md:text-right">
@@ -204,10 +268,9 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
 
                 {/* RÉSUMÉ GLOBAL (Lots & PnL) */}
                 <div className="p-6 border-b border-slate-200 dark:border-zinc-800/60 bg-slate-50/50 dark:bg-zinc-950/20">
-                    <h3 className="text-sm font-semibold mb-4 text-slate-900 dark:text-white">Market Summary</h3>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                         <div>
-                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Global Unrealized PnL</p>
+                            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Global Net PnL (After Funding)</p>
                             <p className={`text-2xl font-mono font-bold ${metrics!.totalPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
                                 {metrics!.totalPnl >= 0 ? '+' : ''}{formatUSDExact(metrics!.totalPnl)}
                             </p>
@@ -240,9 +303,15 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
                             <div><p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><ShieldAlert size={12}/> LP Locked (Max Profit)</p><p className="text-lg font-mono text-slate-900 dark:text-white">{formatCurrency(formatE6(exposure.longMaxProfit))}</p></div>
                             <div><p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><ShieldAlert size={12}/> Total Margin (Max Loss)</p><p className="text-lg font-mono text-slate-900 dark:text-white">{formatCurrency(formatE6(exposure.longMaxLoss))}</p></div>
                         </div>
-                        <div className="p-5 bg-slate-50 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800 rounded-lg">
-                            <p className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider mb-1">Longs Unrealized PnL</p>
-                            <p className={`text-xl font-mono font-bold ${metrics!.longPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>{metrics!.longPnl >= 0 ? '+' : ''}{formatUSDExact(metrics!.longPnl)}</p>
+                        <div className="p-5 bg-slate-50 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800 rounded-lg flex justify-between items-center">
+                            <div>
+                                <p className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase tracking-wider mb-1">Longs Net PnL</p>
+                                <p className={`text-xl font-mono font-bold ${metrics!.longPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>{metrics!.longPnl >= 0 ? '+' : ''}{formatUSDExact(metrics!.longPnl)}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1">Funding Owed</p>
+                                <p className="text-sm font-mono text-slate-700 dark:text-zinc-400">-{formatUSDExact(metrics!.longFundingFeeUsd)}</p>
+                            </div>
                         </div>
                     </div>
 
@@ -260,16 +329,22 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
                             <div><p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><ShieldAlert size={12}/> LP Locked (Max Profit)</p><p className="text-lg font-mono text-slate-900 dark:text-white">{formatCurrency(formatE6(exposure.shortMaxProfit))}</p></div>
                             <div><p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1 flex items-center gap-1"><ShieldAlert size={12}/> Total Margin (Max Loss)</p><p className="text-lg font-mono text-slate-900 dark:text-white">{formatCurrency(formatE6(exposure.shortMaxLoss))}</p></div>
                         </div>
-                        <div className="p-5 bg-slate-50 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800 rounded-lg">
-                            <p className="text-[10px] text-red-600 dark:text-red-400 font-bold uppercase tracking-wider mb-1">Shorts Unrealized PnL</p>
-                            <p className={`text-xl font-mono font-bold ${metrics!.shortPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>{metrics!.shortPnl >= 0 ? '+' : ''}{formatUSDExact(metrics!.shortPnl)}</p>
+                        <div className="p-5 bg-slate-50 dark:bg-zinc-900/50 border border-slate-200 dark:border-zinc-800 rounded-lg flex justify-between items-center">
+                            <div>
+                                <p className="text-[10px] text-red-600 dark:text-red-400 font-bold uppercase tracking-wider mb-1">Shorts Net PnL</p>
+                                <p className={`text-xl font-mono font-bold ${metrics!.shortPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>{metrics!.shortPnl >= 0 ? '+' : ''}{formatUSDExact(metrics!.shortPnl)}</p>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-1">Funding Owed</p>
+                                <p className="text-sm font-mono text-slate-700 dark:text-zinc-400">-{formatUSDExact(metrics!.shortFundingFeeUsd)}</p>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
             {/* ========================================= */}
-            {/* PARTIE 2 : LISTE DES TRADES (Comme Trader)*/}
+            {/* PARTIE 2 : LISTE DES TRADES (AVEC PAGINATION)*/}
             {/* ========================================= */}
             <div className="w-full bg-white dark:bg-[#0a0a0a] shadow-sm border border-slate-200 dark:border-zinc-800/60 rounded-xl overflow-hidden min-h-[300px]">
                 
@@ -287,13 +362,13 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
                 </div>
 
                 <div className="w-full">
-                    {currentData.length === 0 ? (
+                    {fullDataList.length === 0 ? (
                         <div className="p-12 text-center text-slate-500 dark:text-zinc-600 font-mono text-sm">No trades found in this category.</div>
                     ) : (
                         <>
                             {/* VUE MOBILE */}
                             <div className="flex flex-col md:hidden divide-y divide-slate-100 dark:divide-zinc-800/50">
-                                {currentData.map(trade => (
+                                {paginatedData.map(trade => (
                                     <div key={trade.id} className="p-4 flex flex-col gap-3 hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors">
                                         <div className="flex justify-between items-center">
                                             <div className="flex items-center gap-2 font-mono text-[11px] text-slate-800 dark:text-zinc-200">
@@ -318,7 +393,7 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
                                             </div>
                                             {(activeTab === 'open' || activeTab === 'closed') && (
                                                 <div className="flex flex-col items-end">
-                                                    <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">PnL</span>
+                                                    <span className="text-[9px] text-slate-500 dark:text-zinc-500 uppercase font-bold tracking-wider">Net PnL</span>
                                                     <span className={`font-mono font-bold text-sm ${trade.pnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
                                                         {trade.pnl >= 0 ? '+' : ''}{formatUSDExact(trade.pnl)}
                                                     </span>
@@ -345,11 +420,11 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
                                             <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Size</th>
                                             <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Entry</th>
                                             <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500">Margin</th>
-                                            {(activeTab === 'open' || activeTab === 'closed') && <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500 text-right">PnL</th>}
+                                            {(activeTab === 'open' || activeTab === 'closed') && <th className="px-6 py-2.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-500 text-right">Net PnL</th>}
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/50">
-                                        {currentData.map(trade => (
+                                        {paginatedData.map(trade => (
                                             <tr key={trade.id} className="hover:bg-slate-50 dark:hover:bg-zinc-900/30 transition-colors cursor-pointer">
                                                 <td className="px-6 py-3 font-mono text-[11px] text-slate-800 dark:text-zinc-200 hover:text-blue-500 transition-colors">
                                                     {trade.trader.substring(0, 6)}...{trade.trader.substring(trade.trader.length - 4)}
@@ -370,6 +445,48 @@ export default function AssetExplorerView({ assetId, wsData }: { assetId: number
                                         ))}
                                     </tbody>
                                 </table>
+                            </div>
+
+                            {/* CONTROLES DE PAGINATION */}
+                            <div className="flex flex-col sm:flex-row justify-between items-center p-4 border-t border-slate-200 dark:border-zinc-800/60 bg-slate-50 dark:bg-zinc-950/30 gap-4">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-semibold text-slate-500 dark:text-zinc-500 uppercase tracking-wider">Show:</span>
+                                    <select 
+                                        className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 text-xs font-mono rounded px-2 py-1 outline-none text-slate-700 dark:text-zinc-300"
+                                        value={itemsPerPage}
+                                        onChange={(e) => {
+                                            setItemsPerPage(Number(e.target.value));
+                                            setCurrentPage(1); // Reset à la page 1 si on change la taille
+                                        }}
+                                    >
+                                        <option value={10}>10</option>
+                                        <option value={15}>15</option>
+                                        <option value={30}>30</option>
+                                        <option value={50}>50</option>
+                                    </select>
+                                </div>
+
+                                <div className="flex items-center gap-4">
+                                    <span className="text-[10px] font-mono text-slate-500 dark:text-zinc-500">
+                                        Page <span className="font-bold text-slate-900 dark:text-white">{currentPage}</span> of {totalPages}
+                                    </span>
+                                    <div className="flex gap-1">
+                                        <button 
+                                            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                            disabled={currentPage === 1}
+                                            className="p-1 rounded border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <ChevronLeft size={16} />
+                                        </button>
+                                        <button 
+                                            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                            disabled={currentPage === totalPages || totalPages === 0}
+                                            className="p-1 rounded border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            <ChevronRight size={16} />
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </>
                     )}

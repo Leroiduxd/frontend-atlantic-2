@@ -1,9 +1,11 @@
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Treemap, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 
 // --- CONSTANTES & UTILITAIRES ---
+const WAD = 1000000000000000000n;
+
 const ASSET_LOT_SIZES: Record<number, number> = {
   0: 0.01, 1: 0.01, 2: 1, 3: 1000, 5: 1, 10: 1, 14: 100, 15: 1000, 16: 100, 90: 10, 5500: 0.01, 5501: 0.1,
 };
@@ -16,9 +18,6 @@ const formatDynamicPrice = (val: number) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }).format(val);
 };
 
-// ==========================================
-// COMPOSANT PRINCIPAL
-// ==========================================
 interface ExposureTreemapProps {
   exposures: any;
   currentPrices: Record<number, number>;
@@ -27,7 +26,56 @@ interface ExposureTreemapProps {
 
 export default function ExposureTreemap({ exposures, currentPrices, onNavigateAsset }: ExposureTreemapProps) {
   const [treemapMode, setTreemapMode] = useState<'lp' | 'margin'>('lp');
+  
+  // LE COMPOSANT GÈRE SES PROPRES DONNÉES DE FUNDING
+  const [avgFundings, setAvgFundings] = useState<any>({});
+  const [liveFundings, setLiveFundings] = useState<any>({});
 
+  // Le composant va chercher son funding tout seul comme un grand
+  useEffect(() => {
+    if (!exposures || Object.keys(exposures).length === 0) return;
+
+    const fetchFundingData = async () => {
+      try {
+        // 1. Fetch des moyennes globales
+        const avgFundRes = await fetch('https://api.brokex.trade/stats/funding/all').catch(() => null);
+        if (avgFundRes) {
+            const d = await avgFundRes.json();
+            if (d.success) setAvgFundings(d.data);
+        }
+
+        // 2. Fetch des fundings Live uniquement pour les marchés actifs
+        const activeIds = Object.keys(exposures);
+        const livePromises = activeIds.map(id => 
+            fetch(`https://api.brokex.trade/funding/live/${id}`)
+                .then(r => r.json())
+                .then(res => ({ id: Number(id), data: res.data }))
+                .catch(() => null)
+        );
+        
+        const liveResults = await Promise.all(livePromises);
+        const liveMap: any = {};
+        
+        liveResults.forEach(item => {
+            if (item && item.data) {
+                liveMap[item.id] = item.data;
+            }
+        });
+        
+        setLiveFundings(liveMap);
+      } catch (error) {
+        console.error("Erreur récupération funding Treemap:", error);
+      }
+    };
+
+    // Exécute tout de suite, puis met à jour toutes les 15 secondes
+    fetchFundingData();
+    const interval = setInterval(fetchFundingData, 15000);
+    return () => clearInterval(interval);
+
+  }, [exposures]); // Se relance si les marchés actifs changent
+
+  // --- CALCULS (Inchangés) ---
   const treemapData = useMemo(() => {
     if (!exposures || Object.keys(exposures).length === 0) return [];
     
@@ -48,9 +96,32 @@ export default function ExposureTreemap({ exposures, currentPrices, onNavigateAs
         const avgLongPrice = longAssetSize > 0 ? (longValueSumE6 / longAssetSize) : 0;
         const avgShortPrice = shortAssetSize > 0 ? (shortValueSumE6 / shortAssetSize) : 0;
 
-        const longPnl = longAssetSize > 0 && currentPrice > 0 ? (currentPrice - avgLongPrice) * longAssetSize : 0;
-        const shortPnl = shortAssetSize > 0 && currentPrice > 0 ? (avgShortPrice - currentPrice) * shortAssetSize : 0;
-        const totalRawPnl = longPnl + shortPnl;
+        const longPnlRaw = longAssetSize > 0 && currentPrice > 0 ? (currentPrice - avgLongPrice) * longAssetSize : 0;
+        const shortPnlRaw = shortAssetSize > 0 && currentPrice > 0 ? (avgShortPrice - currentPrice) * shortAssetSize : 0;
+
+        let longFundingFeeUsd = 0;
+        let shortFundingFeeUsd = 0;
+
+        const liveFunding = liveFundings[assetId] || liveFundings[assetId.toString()];
+        const avgFunding = avgFundings[assetId] || avgFundings[assetId.toString()];
+
+        if (liveFunding && avgFunding && currentPrice > 0) {
+            const liveLong = BigInt(liveFunding.liveLongIndex || "0");
+            const liveShort = BigInt(liveFunding.liveShortIndex || "0");
+            const avgLongIdx = BigInt(avgFunding.longAvgFundingIndex || "0");
+            const avgShortIdx = BigInt(avgFunding.shortAvgFundingIndex || "0");
+
+            const deltaLong = Number(liveLong - avgLongIdx) / Number(WAD);
+            longFundingFeeUsd = deltaLong * (currentPrice * longAssetSize);
+            
+            const deltaShort = Number(liveShort - avgShortIdx) / Number(WAD);
+            shortFundingFeeUsd = deltaShort * (currentPrice * shortAssetSize);
+        }
+
+        const netLongPnl = longPnlRaw - longFundingFeeUsd;
+        const netShortPnl = shortPnlRaw - shortFundingFeeUsd;
+        const totalNetPnl = netLongPnl + netShortPnl;
+        const totalFundingOwed = longFundingFeeUsd + shortFundingFeeUsd;
 
         const longMargin = Number(exp.longMaxLoss) / 1_000_000;
         const shortMargin = Number(exp.shortMaxLoss) / 1_000_000;
@@ -60,17 +131,16 @@ export default function ExposureTreemap({ exposures, currentPrices, onNavigateAs
         const shortProfit = Number(exp.shortMaxProfit) / 1_000_000;
         const totalLpLocked = longProfit + shortProfit;
         
-        const isTraderWinning = totalRawPnl > 0;
+        const isTraderWinning = totalNetPnl >= 0;
         const displaySize = treemapMode === 'lp' ? totalLpLocked : totalMargin;
         
         return {
           id: assetId,
           name: exp.name.replace('_', '/').toUpperCase(),
-          size: Math.max(0.01, displaySize), // Empêche le bug recharts si taille = 0
+          size: Math.max(0.01, displaySize), 
           displaySize,
-          totalRawPnl,
-          longPnl,
-          shortPnl,
+          totalNetPnl,
+          totalFundingOwed,
           avgLongPrice,
           avgShortPrice,
           totalMargin,
@@ -83,7 +153,7 @@ export default function ExposureTreemap({ exposures, currentPrices, onNavigateAs
       })
       .filter((d) => d.hasExposure) 
       .sort((a, b) => b.size - a.size);
-  }, [exposures, currentPrices, treemapMode]);
+  }, [exposures, currentPrices, avgFundings, liveFundings, treemapMode]);
 
   if (treemapData.length === 0) return null;
 
@@ -93,7 +163,6 @@ export default function ExposureTreemap({ exposures, currentPrices, onNavigateAs
         <h3 className="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">Market Size & Traders PnL Heatmap</h3>
         
         <div className="flex flex-wrap items-center gap-6">
-          {/* Toggle Switch */}
           <div className="flex bg-slate-200/60 dark:bg-zinc-800/60 rounded p-1">
             <button 
                 className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded transition-all ${treemapMode === 'lp' ? 'bg-white dark:bg-zinc-700 shadow-sm text-slate-900 dark:text-white' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
@@ -110,8 +179,8 @@ export default function ExposureTreemap({ exposures, currentPrices, onNavigateAs
           </div>
 
           <div className="flex gap-4 text-xs font-mono">
-            <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-red-500 rounded-sm"></div> Traders Winning</span>
-            <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-500 rounded-sm"></div> Traders Losing</span>
+            <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-500 rounded-sm"></div> Traders Winning</span>
+            <span className="flex items-center gap-1.5"><div className="w-3 h-3 bg-red-500 rounded-sm"></div> Traders Losing</span>
           </div>
         </div>
       </div>
@@ -135,35 +204,30 @@ export default function ExposureTreemap({ exposures, currentPrices, onNavigateAs
 }
 
 // ==========================================
-// SOUS-COMPOSANTS (Blocs & Tooltip)
+// SOUS-COMPOSANTS
 // ==========================================
 const CustomTreemapContent = (props: any) => {
-  // depth permet d'identifier le bloc parent (0) des enfants (1)
   const { depth, x, y, width, height, name, isTraderWinning, id, onNavigateAsset } = props;
 
-  // On empêche le bloc parent géant d'être dessiné pour garder le fond transparent
   if (depth === 0) return null;
 
-  const gap = 4; // Espacement entre les cartes
+  const gap = 4;
   const innerX = x + gap / 2;
   const innerY = y + gap / 2;
   const innerWidth = Math.max(0, width - gap);
   const innerHeight = Math.max(0, height - gap);
 
   return (
-    <g 
-      onClick={() => onNavigateAsset && onNavigateAsset(id)} 
-      style={{ cursor: 'pointer' }}
-    >
+    <g onClick={() => onNavigateAsset && onNavigateAsset(id)} style={{ cursor: 'pointer' }}>
       <rect
         x={innerX}
         y={innerY}
         width={innerWidth}
         height={innerHeight}
-        rx={4} // Coins arrondis
+        rx={4} 
         ry={4}
         style={{
-          fill: isTraderWinning ? '#ef4444' : '#3b82f6', 
+          fill: isTraderWinning ? '#3b82f6' : '#ef4444', 
           opacity: 0.85,
           transition: 'all 0.2s ease',
         }}
@@ -196,11 +260,16 @@ const CustomTooltip = ({ active, payload }: any) => {
       <div className="bg-white dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 p-4 rounded shadow-xl text-xs font-mono min-w-[280px] z-50">
         <p className="font-bold text-slate-900 dark:text-white text-base mb-3 pb-2 border-b border-slate-100 dark:border-zinc-800/60">{data.name}</p>
         
-        <div className="mb-4">
-            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Traders Unrealized PnL (Excl. Fees)</p>
-            <p className={`text-xl font-bold ${data.totalRawPnl >= 0 ? 'text-red-600 dark:text-red-500' : 'text-blue-600 dark:text-blue-500'}`}>
-                {data.totalRawPnl >= 0 ? '+' : ''}{formatUSDExact(data.totalRawPnl)}
+        <div className="mb-2">
+            <p className="text-[10px] text-slate-500 dark:text-zinc-500 font-bold uppercase tracking-wider mb-1">Traders Net PnL (Inc. Funding)</p>
+            <p className={`text-xl font-bold ${data.totalNetPnl >= 0 ? 'text-blue-600 dark:text-blue-500' : 'text-red-600 dark:text-red-500'}`}>
+                {data.totalNetPnl >= 0 ? '+' : ''}{formatUSDExact(data.totalNetPnl)}
             </p>
+        </div>
+        
+        <div className="flex justify-between items-center text-[10px] mb-4 text-slate-500 dark:text-zinc-500">
+            <span>Funding Owed:</span>
+            <span className="font-bold text-slate-700 dark:text-zinc-400">-{formatUSDExact(data.totalFundingOwed)}</span>
         </div>
 
         <div className="grid grid-cols-2 gap-4 mb-4 bg-slate-50 dark:bg-zinc-900/40 p-2 rounded">
