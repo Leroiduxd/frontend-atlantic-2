@@ -429,7 +429,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   const [baseSpreads, setBaseSpreads] = useState<any>({});
   const [liveFundings, setLiveFundings] = useState<any>({});
 
-  const { address } = useAccount();
+  const { address, isConnected} = useAccount();
   const { toast } = useToast();
   
   const { 
@@ -494,10 +494,26 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
   };
 
   useEffect(() => {
+    if (!isConnected) {
+        // Si déconnecté et que la vue est ouverte, on ferme
+        if (!isCollapsed) {
+          onToggleCollapse();
+        }
+      } else {
+        // Si connecté et que la vue est fermée, on peut l'ouvrir par défaut (optionnel)
+        if (isCollapsed) {
+          onToggleCollapse();
+        }
+      }
+
     fetchTrades();
     const interval = setInterval(fetchTrades, 5000);
     return () => clearInterval(interval);
-  }, [address]);
+    
+    
+  }, [address, isConnected ]);
+
+  
 
   const assetSymbolMap = useMemo(() => {
     return assetConfigs.reduce((map, config) => {
@@ -513,6 +529,7 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
     }, {} as { [id: number]: { symbol: string; baseSymbol: string; priceDecimals: number; priceStep: number } });
   }, [assetConfigs]);
 
+  
   const assetMap = useMemo(() => {
     const allAssets = getAssetsByCategory(wsData).crypto.concat(
         getAssetsByCategory(wsData).forex,

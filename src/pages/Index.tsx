@@ -5,19 +5,13 @@ import Sidebar from "@/components/Sidebar";
 import TradingSection from "@/components/TradingSection";
 import VaultInterface from "@/components/vault"; 
 import { FaucetDialog } from "@/components/FaucetDialog";
-import { WelcomeOverlay } from "@/components/WelcomeOverlay";
 import MobileLayout from "@/components/mobile/MobileLayout"; 
 import Leaderboard from "@/components/Leaderboard";
-import Scan from "@/components/scan"; // Vérifie bien la majuscule "Scan" pour éviter l'erreur de build
+import Scan from "@/components/scan"; 
 
 const Index: React.FC = () => {
   const [currentView, setCurrentView] = useState<'trading' | 'vault' | 'scan' | 'leaderboard'>('trading');
   const [isFaucetOpen, setIsFaucetOpen] = useState(false);
-  const [showWelcome, setShowWelcome] = useState(true);
-
-  const handleDismissWelcome = () => {
-    setShowWelcome(false);
-  };
 
   return (
     <div className="antialiased bg-background dark:bg-black h-screen w-full transition-colors duration-300">
@@ -30,8 +24,6 @@ const Index: React.FC = () => {
       {/* VERSION DESKTOP */}
       <div className="hidden md:flex h-full overflow-hidden">
         
-        {showWelcome && <WelcomeOverlay onDismiss={handleDismissWelcome} />}
-
         <Sidebar 
             setIsFaucetOpen={setIsFaucetOpen} 
             currentView={currentView}
@@ -58,7 +50,6 @@ const Index: React.FC = () => {
               </div>
             )}
 
-            {/* AJOUT PROPRE DU LEADERBOARD ICI */}
             {currentView === 'leaderboard' && (
               <div className="h-full overflow-y-auto bg-slate-50 dark:bg-black transition-colors duration-300">
                   <Leaderboard />
