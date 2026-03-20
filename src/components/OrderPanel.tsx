@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -16,80 +16,69 @@ import { Landmark, ChevronUp, ChevronDown, Fuel, Eye, EyeOff } from 'lucide-reac
 import { Hash, formatUnits } from 'viem';
 import { useMarketStatus } from "@/hooks/useMarketStatus";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-
-// NOUVEAU : On importe le FaucetDialog pour pouvoir l'ouvrir depuis l'OrderPanel
 import { FaucetDialog } from "@/components/FaucetDialog";
 
 // --- MAPPING DES TAILLES DE LOTS ---
 const ASSET_LOT_SIZES: Record<number, number> = {
-    0: 0.01,    // btc_usdt
-    1: 0.01,     // eth_usdt
-    2: 1,       // link_usdt
-    3: 1000,    // doge_usdt
-    5: 1,       // avax_usdt
-    10: 1,      // sol_usdt
-    14: 100,    // xrp_usdt
-    15: 1000,   // trx_usdt
-    16: 100,    // ada_usdt
-    90: 10,     // sui_usdt
-    5500: 0.01, // xau_usd
-    5501: 0.1,  // xag_usd
+    0: 0.01, 1: 0.01, 2: 1, 3: 1000, 5: 1, 10: 1, 14: 100, 15: 1000, 16: 100, 90: 10, 5500: 0.01, 5501: 0.1,
 };
 
 // --- CONSTANTES TRADING ---
 const TRADING_ADDRESS = '0xC7eA1B52D20d0B4135ae5cc8E4225b3F12eA279B' as const;
 const TRADING_ABI = [
-    {
-        inputs: [
-            { internalType: "uint32", name: "assetId", type: "uint32" },
-            { internalType: "bool", name: "isLong", type: "bool" },
-            { internalType: "uint8", name: "leverage", type: "uint8" },
-            { internalType: "int32", name: "lotSize", type: "int32" },
-            { internalType: "uint48", name: "stopLoss", type: "uint48" },
-            { internalType: "uint48", name: "takeProfit", type: "uint48" },
-            { internalType: "bytes", name: "oracleProof", type: "bytes" }
-        ],
-        name: "openMarketPosition",
-        outputs: [],
-        stateMutability: "nonpayable",
-        type: "function"
-    },
-    {
-        inputs: [
-            { internalType: "uint32", name: "assetId", type: "uint32" },
-            { internalType: "bool", name: "isLong", type: "bool" },
-            { internalType: "bool", name: "isLimit", type: "bool" },
-            { internalType: "uint8", name: "leverage", type: "uint8" },
-            { internalType: "int32", name: "lotSize", type: "int32" },
-            { internalType: "uint48", name: "targetPrice", type: "uint48" },
-            { internalType: "uint48", name: "stopLoss", type: "uint48" },
-            { internalType: "uint48", name: "takeProfit", type: "uint48" }
-        ],
-        name: "placeOrder",
-        outputs: [],
-        stateMutability: "nonpayable",
-        type: "function"
-    }
+    { inputs: [{ internalType: "uint32", name: "assetId", type: "uint32" }, { internalType: "bool", name: "isLong", type: "bool" }, { internalType: "uint8", name: "leverage", type: "uint8" }, { internalType: "int32", name: "lotSize", type: "int32" }, { internalType: "uint48", name: "stopLoss", type: "uint48" }, { internalType: "uint48", name: "takeProfit", type: "uint48" }, { internalType: "bytes", name: "oracleProof", type: "bytes" }], name: "openMarketPosition", outputs: [], stateMutability: "nonpayable", type: "function" },
+    { inputs: [{ internalType: "uint32", name: "assetId", type: "uint32" }, { internalType: "bool", name: "isLong", type: "bool" }, { internalType: "bool", name: "isLimit", type: "bool" }, { internalType: "uint8", name: "leverage", type: "uint8" }, { internalType: "int32", name: "lotSize", type: "int32" }, { internalType: "uint48", name: "targetPrice", type: "uint48" }, { internalType: "uint48", name: "stopLoss", type: "uint48" }, { internalType: "uint48", name: "takeProfit", type: "uint48" }], name: "placeOrder", outputs: [], stateMutability: "nonpayable", type: "function" }
 ] as const;
 
 // --- CONSTANTES VAULT ---
 const VAULT_ADDRESS = '0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0' as const;
 const VAULT_ABI = [
-    {
-        inputs: [{ internalType: "address", name: "trader", type: "address" }],
-        name: "getTraderTotalBalance",
-        outputs: [{ internalType: "uint256", name: "total6", type: "uint256" }],
-        stateMutability: "view",
-        type: "function"
-    },
-    {
-        inputs: [{ internalType: "address", name: "", type: "address" }],
-        name: "freeBalance",
-        outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
-        stateMutability: "view",
-        type: "function"
-    }
+    { inputs: [{ internalType: "address", name: "trader", type: "address" }], name: "getTraderTotalBalance", outputs: [{ internalType: "uint256", name: "total6", type: "uint256" }], stateMutability: "view", type: "function" },
+    { inputs: [{ internalType: "address", name: "", type: "address" }], name: "freeBalance", outputs: [{ internalType: "uint256", name: "", type: "uint256" }], stateMutability: "view", type: "function" }
 ] as const;
+
+// --- CUSTOM DROPDOWN (Évite le select natif du navigateur) ---
+const CustomDropdown = ({ value, onChange, options }: { value: string, onChange: (val: string) => void, options: {label: string, value: string}[] }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    const selectedLabel = options.find(o => o.value === value)?.label || "";
+
+    return (
+        <div className="relative w-24" ref={dropdownRef}>
+            <div 
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full flex items-center justify-between bg-white dark:bg-[#111] text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-800 rounded-[4px] h-8 px-2 text-[11px] font-semibold cursor-pointer hover:border-blue-500 transition-colors"
+            >
+                <span className="select-none">{selectedLabel}</span>
+                <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </div>
+            {isOpen && (
+                <div className="absolute top-full left-0 mt-1 w-full bg-white dark:bg-[#111] border border-slate-200 dark:border-zinc-800 rounded-[4px] z-50 shadow-lg overflow-hidden">
+                    {options.map((option) => (
+                        <div 
+                            key={option.value}
+                            onClick={() => { onChange(option.value); setIsOpen(false); }}
+                            className={`px-2 py-1.5 text-[11px] font-medium cursor-pointer transition-colors ${value === option.value ? 'bg-blue-50 dark:bg-zinc-800 text-blue-600 dark:text-white' : 'hover:bg-slate-50 dark:hover:bg-zinc-800/50 text-slate-700 dark:text-zinc-300'}`}
+                        >
+                            {option.label}
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
 
 interface StepControllerProps {
     value: string | number;
@@ -111,8 +100,7 @@ const StepController: React.FC<StepControllerProps> = ({
         onChange(Number(newValue.toFixed(finalDecimals)));
     };
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const val = e.target.value;
-        onChange(val);
+        onChange(e.target.value);
     };
 
     const widthClass = isCompact 
@@ -123,13 +111,7 @@ const StepController: React.FC<StepControllerProps> = ({
 
     return (
         <div className="relative flex items-center">
-            <Input
-                type="text"
-                placeholder="0.00"
-                value={value}
-                onChange={handleInputChange}
-                className={widthClass}
-            />
+            <Input type="text" placeholder="0.00" value={value} onChange={handleInputChange} className={widthClass} />
             <div className={`absolute right-0 top-0 h-full flex flex-col justify-center border-l border-border dark:border-zinc-800`}>
                 <Button variant="ghost" size="icon" className={`h-1/2 ${buttonWidth} p-0 border-b border-border/80 dark:border-zinc-800 rounded-none rounded-tr-sm hover:dark:bg-zinc-900`} onClick={() => handleStep(step)}>
                     <ChevronUp className={`${iconSize} dark:text-zinc-500`} />
@@ -161,27 +143,25 @@ interface OrderPanelProps {
 }
 
 const OrderPanel = ({
-    selectedAsset,
-    currentPrice,
-    paymasterEnabled,
-    onTogglePaymaster,
-    onGoToWallet
+    selectedAsset, currentPrice, paymasterEnabled, onTogglePaymaster, onGoToWallet
 }: OrderPanelProps) => {
 
     const [orderType, setOrderType] = useState<OrderType>("limit");
-    const [tpEnabled, setTpEnabled] = useState(false);
-    const [slEnabled, setSlEnabled] = useState(false);
     const [leverage, setLeverage] = useState(10);
     const [assetAmount, setAssetAmount] = useState<number | string>(1); 
     const [limitPrice, setLimitPrice] = useState('');
-    
     const [isUserEditedPrice, setIsUserEditedPrice] = useState(false);
-
-    // Etat pour ouvrir la modale Faucet
     const [isFaucetOpen, setIsFaucetOpen] = useState(false);
 
-    const [tpPrice, setTpPrice] = useState('');
-    const [slPrice, setSlPrice] = useState('');
+    // NOUVEAUX ETATS TP/SL EXACTEMENT COMME SUR MOBILE
+    const [tpEnabled, setTpEnabled] = useState(false);
+    const [tpMode, setTpMode] = useState<"price" | "percent" | "pnl">("price");
+    const [tpValue, setTpValue] = useState('');
+
+    const [slEnabled, setSlEnabled] = useState(false);
+    const [slMode, setSlMode] = useState<"price" | "percent" | "pnl">("price");
+    const [slValue, setSlValue] = useState('');
+
     const [localLoading, setLocalLoading] = useState(false);
     const [showBalance, setShowBalance] = useState(true); 
 
@@ -189,7 +169,6 @@ const OrderPanel = ({
     const { getConfigById } = useAssetConfig();
     const { address, chain: currentChain } = useAccount();
     const { executeOpenMarket, executePlaceOrder, isLoading: paymasterLoading } = usePaymaster();
-    
     const { writeContractAsync } = useWriteContract();
     const { toast } = useToast();
     const publicClient = usePublicClient({ chainId: currentChain?.id });
@@ -198,18 +177,8 @@ const OrderPanel = ({
 
     const { data: balanceData, refetch: refetchBalances } = useReadContracts({
         contracts: [
-            {
-                address: VAULT_ADDRESS,
-                abi: VAULT_ABI,
-                functionName: 'getTraderTotalBalance',
-                args: [safeAddress],
-            },
-            {
-                address: VAULT_ADDRESS,
-                abi: VAULT_ABI,
-                functionName: 'freeBalance',
-                args: [safeAddress],
-            }
+            { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'getTraderTotalBalance', args: [safeAddress] },
+            { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'freeBalance', args: [safeAddress] }
         ],
         query: { enabled: !!address, refetchInterval: 5000 }
     });
@@ -231,30 +200,19 @@ const OrderPanel = ({
     const lotSizeInAsset = ASSET_LOT_SIZES[finalAssetIdForTx] || 1;
     const amountDecimals = Math.max(0, -Math.floor(Math.log10(lotSizeInAsset)));
     
-    const actualLots = useMemo(() => {
-        return Math.max(1, Math.round(Number(assetAmount) / lotSizeInAsset));
-    }, [assetAmount, lotSizeInAsset]);
-
+    const actualLots = useMemo(() => Math.max(1, Math.round(Number(assetAmount) / lotSizeInAsset)), [assetAmount, lotSizeInAsset]);
     const effectiveAmount = actualLots * lotSizeInAsset;
 
-    useEffect(() => {
-        setAssetAmount(lotSizeInAsset);
-    }, [finalAssetIdForTx, lotSizeInAsset]);
-
-    useEffect(() => {
-        if (!isMarketOpen && orderType === "market") setOrderType("limit");
-    }, [isMarketOpen, orderType]);
+    useEffect(() => { setAssetAmount(lotSizeInAsset); }, [finalAssetIdForTx, lotSizeInAsset]);
+    useEffect(() => { if (!isMarketOpen && orderType === "market") setOrderType("limit"); }, [isMarketOpen, orderType]);
 
     const assetConfig = getConfigById(finalAssetIdForTx);
-
     const { priceDecimals, priceStep } = useMemo(() => {
         const decimals = Math.max(0, Math.round(Math.log10(1000000 / (assetConfig?.tick_size_usd6 || 10000))));
         return { priceDecimals: decimals, priceStep: 1 / (10 ** decimals) };
     }, [assetConfig]);
 
-    useEffect(() => {
-        setIsUserEditedPrice(false);
-    }, [selectedAsset.id, orderType]);
+    useEffect(() => { setIsUserEditedPrice(false); }, [selectedAsset.id, orderType]);
 
     useEffect(() => {
         if (currentPrice > 0 && (orderType === 'limit' || orderType === 'stop')) {
@@ -288,88 +246,81 @@ const OrderPanel = ({
     const formatPrice = (value: number) => value === 0 ? "0.00" : value.toFixed(priceDecimals > 5 ? 5 : priceDecimals || 2);
     const getDisplayValue = useCallback((value: string | number) => showBalance ? value : '***', [showBalance]);
 
+    // --- LOGIQUE METIER TP / SL IDENTIQUE A MOBILE ---
     const handleTrade = async (longSide: boolean) => {
         if (!isMarketOpen && orderType === 'market') return toast({ title: 'Market Closed', variant: "destructive" });
-        
-        const numLimitPrice = Number(limitPrice);
-        const numSlPrice = slEnabled && slPrice ? Number(slPrice) : undefined;
-        const numTpPrice = tpEnabled && tpPrice ? Number(tpPrice) : undefined;
-        const requiredMargin = calculations.cost * 1.01;
+        if (effectiveAmount <= 0) return toast({ title: 'Invalid amount', variant: "destructive" });
 
+        const requiredMargin = calculations.cost * 1.01;
         if (availableBalanceVal < requiredMargin) return toast({ title: 'Insufficient Balance', variant: "destructive" });
 
         if (!paymasterEnabled) setLocalLoading(true);
         let txHash: Hash | string | undefined;
 
         try {
-            const slX6 = numSlPrice ? Math.round(numSlPrice * 1000000) : 0;
-            const tpX6 = numTpPrice ? Math.round(numTpPrice * 1000000) : 0;
+            const isLong = longSide;
+            const levNum = Number(leverage);
+            const entryPrice = (orderType === 'limit' || orderType === 'stop') ? Number(limitPrice) : currentPrice;
+
+            let finalTpX6 = 0;
+            if (tpEnabled && tpValue) {
+                const val = Number(tpValue);
+                let tpPriceCalc = 0;
+                if (tpMode === 'price') {
+                    tpPriceCalc = val;
+                } else if (tpMode === 'pnl') {
+                    tpPriceCalc = isLong ? entryPrice + (val / effectiveAmount) : entryPrice - (val / effectiveAmount);
+                } else if (tpMode === 'percent') {
+                    const roe = val / 100;
+                    tpPriceCalc = isLong ? entryPrice * (1 + roe / levNum) : entryPrice * (1 - roe / levNum);
+                }
+                finalTpX6 = Math.round(Math.max(0, tpPriceCalc) * 1000000);
+            }
+
+            let finalSlX6 = 0;
+            if (slEnabled && slValue) {
+                const val = Math.abs(Number(slValue)); 
+                let slPriceCalc = 0;
+                if (slMode === 'price') {
+                    slPriceCalc = Number(slValue);
+                } else if (slMode === 'pnl') {
+                    slPriceCalc = isLong ? entryPrice - (val / effectiveAmount) : entryPrice + (val / effectiveAmount);
+                } else if (slMode === 'percent') {
+                    const roe = val / 100;
+                    slPriceCalc = isLong ? entryPrice * (1 - roe / levNum) : entryPrice * (1 + roe / levNum);
+                }
+                finalSlX6 = Math.round(Math.max(0, slPriceCalc) * 1000000);
+            }
 
             if (paymasterEnabled) {
                 if (orderType === 'limit' || orderType === 'stop') {
-                    const targetPriceX6 = Math.round(numLimitPrice * 1000000);
+                    const targetPriceX6 = Math.round(entryPrice * 1000000);
                     txHash = await executePlaceOrder({
-                        assetId: finalAssetIdForTx,
-                        isLong: longSide,
-                        isLimit: orderType === 'limit',
-                        leverage: leverage,
-                        lotSize: actualLots,
-                        targetPrice: targetPriceX6,
-                        stopLoss: slX6,
-                        takeProfit: tpX6
+                        assetId: finalAssetIdForTx, isLong, isLimit: orderType === 'limit', leverage: levNum, lotSize: actualLots, targetPrice: targetPriceX6, stopLoss: finalSlX6, takeProfit: finalTpX6
                     });
                 } else {
                     txHash = await executeOpenMarket({
-                        assetId: finalAssetIdForTx,
-                        isLong: longSide,
-                        leverage: leverage,
-                        lotSize: actualLots,
-                        stopLoss: slX6,
-                        takeProfit: tpX6
+                        assetId: finalAssetIdForTx, isLong, leverage: levNum, lotSize: actualLots, stopLoss: finalSlX6, takeProfit: finalTpX6
                     });
                 }
             } else {
                 if (orderType === 'limit' || orderType === 'stop') {
-                    const isLimit = orderType === 'limit'; 
-                    const targetPriceX6 = Math.round(numLimitPrice * 1000000);
-
+                    const targetPriceX6 = Math.round(entryPrice * 1000000);
                     txHash = await writeContractAsync({
-                        address: TRADING_ADDRESS, 
-                        abi: TRADING_ABI, 
-                        functionName: 'placeOrder',
-                        args: [
-                            finalAssetIdForTx, 
-                            longSide, 
-                            isLimit, 
-                            leverage, 
-                            actualLots,
-                            BigInt(targetPriceX6), 
-                            BigInt(slX6), 
-                            BigInt(tpX6)
-                        ],
+                        address: TRADING_ADDRESS, abi: TRADING_ABI, functionName: 'placeOrder',
+                        args: [finalAssetIdForTx, isLong, orderType === 'limit', levNum, actualLots, BigInt(targetPriceX6), BigInt(finalSlX6), BigInt(finalTpX6)],
                     });
                 } else {
                     const proof = await getMarketProof(finalAssetIdForTx);
                     txHash = await writeContractAsync({
-                        address: TRADING_ADDRESS, 
-                        abi: TRADING_ABI, 
-                        functionName: 'openMarketPosition',
-                        args: [
-                            finalAssetIdForTx, 
-                            longSide, 
-                            leverage, 
-                            actualLots,
-                            BigInt(slX6), 
-                            BigInt(tpX6), 
-                            proof
-                        ],
+                        address: TRADING_ADDRESS, abi: TRADING_ABI, functionName: 'openMarketPosition',
+                        args: [finalAssetIdForTx, isLong, levNum, actualLots, BigInt(finalSlX6), BigInt(finalTpX6), proof],
                     });
                 }
-                
                 if (publicClient && txHash) await publicClient.waitForTransactionReceipt({ hash: txHash as Hash });
             }
 
-            toast({ title: 'Order Placed', description: `${longSide ? 'Buy' : 'Sell'} order successful.` });
+            toast({ title: 'Order Placed', description: `${isLong ? 'Buy' : 'Sell'} order successful.` });
             refetchVault();
             refetchBalances();
         } catch (e: any) {
@@ -388,24 +339,9 @@ const OrderPanel = ({
                 
                 <div className="flex justify-between items-center border-b border-border dark:border-zinc-800 text-muted-foreground font-medium text-sm pt-1 pb-2">
                     <div className="flex">
-                        <div 
-                            className={`py-1 mr-4 cursor-pointer transition ${orderType === "limit" ? "text-foreground dark:text-white border-b-2 border-foreground dark:border-white" : "hover:text-foreground dark:hover:text-zinc-400"}`} 
-                            onClick={() => setOrderType("limit")}
-                        >
-                            Limit
-                        </div>
-                        <div 
-                            className={`py-1 mr-4 cursor-pointer transition ${orderType === "stop" ? "text-foreground dark:text-white border-b-2 border-foreground dark:border-white" : "hover:text-foreground dark:hover:text-zinc-400"}`} 
-                            onClick={() => setOrderType("stop")}
-                        >
-                            Stop
-                        </div>
-                        <div 
-                            className={`py-1 mr-4 transition ${!isMarketOpen ? "opacity-50 cursor-not-allowed" : orderType === "market" ? "text-foreground dark:text-white border-b-2 border-foreground dark:border-white cursor-pointer" : "hover:text-foreground dark:hover:text-zinc-400 cursor-pointer"}`} 
-                            onClick={() => isMarketOpen && setOrderType("market")}
-                        >
-                            Market
-                        </div>
+                        <div className={`py-1 mr-4 cursor-pointer transition ${orderType === "limit" ? "text-foreground dark:text-white border-b-2 border-foreground dark:border-white" : "hover:text-foreground dark:hover:text-zinc-400"}`} onClick={() => setOrderType("limit")}>Limit</div>
+                        <div className={`py-1 mr-4 cursor-pointer transition ${orderType === "stop" ? "text-foreground dark:text-white border-b-2 border-foreground dark:border-white" : "hover:text-foreground dark:hover:text-zinc-400"}`} onClick={() => setOrderType("stop")}>Stop</div>
+                        <div className={`py-1 mr-4 transition ${!isMarketOpen ? "opacity-50 cursor-not-allowed" : orderType === "market" ? "text-foreground dark:text-white border-b-2 border-foreground dark:border-white cursor-pointer" : "hover:text-foreground dark:hover:text-zinc-400 cursor-pointer"}`} onClick={() => isMarketOpen && setOrderType("market")}>Market</div>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -431,85 +367,89 @@ const OrderPanel = ({
                     <span className="text-light-text dark:text-zinc-500 text-xs block mb-1">
                         Amount ({selectedAsset.symbol.split('/')[0]})
                     </span>
-                    <StepController 
-                        value={assetAmount} 
-                        onChange={setAssetAmount} 
-                        step={lotSizeInAsset} 
-                        min={lotSizeInAsset} 
-                        decimals={amountDecimals} 
-                    />
+                    <StepController value={assetAmount} onChange={setAssetAmount} step={lotSizeInAsset} min={lotSizeInAsset} decimals={amountDecimals} />
                 </div>
 
-                <div className="space-y-3">
-                    <div>
-                        {/* NOUVEAU : Logique de clic sur Checkbox pour Take Profit */}
-                        <label className="flex items-center text-foreground dark:text-zinc-300 cursor-pointer mb-2">
+                {/* --- SECTIONS TAKE PROFIT & STOP LOSS --- */}
+                <div className="space-y-4">
+                    <div className="flex flex-col gap-2">
+                        <label className="flex items-center text-foreground dark:text-zinc-300 cursor-pointer w-max">
                             <Checkbox 
                                 checked={tpEnabled} 
-                                onCheckedChange={(c) => {
-                                    setTpEnabled(!!c);
-                                    if (!!c) setTpPrice(currentPrice.toFixed(priceDecimals));
-                                }} 
+                                onCheckedChange={(c) => setTpEnabled(!!c)} 
                                 className="mr-2 dark:border-zinc-600 dark:data-[state=checked]:bg-zinc-200 dark:data-[state=checked]:text-black" 
                             />
                             <span className="text-sm">Take Profit</span>
                         </label>
-                        {tpEnabled && <StepController value={tpPrice} onChange={setTpPrice} step={priceStep} decimals={priceDecimals} />}
+                        {tpEnabled && (
+                            <div className="flex gap-2">
+                                <CustomDropdown 
+                                    value={tpMode} 
+                                    onChange={(v) => setTpMode(v as any)} 
+                                    options={[
+                                        { label: "Price", value: "price" },
+                                        { label: "ROE %", value: "percent" },
+                                        { label: "PnL $", value: "pnl" }
+                                    ]}
+                                />
+                                <div className="flex-1 flex items-center bg-white dark:bg-black border border-slate-200 dark:border-zinc-800 rounded-[4px] focus-within:border-blue-500 h-8 px-2 transition-colors">
+                                    <Input 
+                                        type="number" placeholder="0.00" value={tpValue} onChange={(e) => setTpValue(e.target.value)} 
+                                        className="flex-1 bg-transparent border-none text-right text-slate-900 dark:text-white text-xs font-mono focus-visible:ring-0 p-0 [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                    />
+                                    <span className="text-slate-500 dark:text-zinc-500 text-[10px] ml-1.5">{tpMode === 'price' ? 'USDT' : tpMode === 'percent' ? '%' : 'USDT'}</span>
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    <div>
-                        {/* NOUVEAU : Logique de clic sur Checkbox pour Stop Loss */}
-                        <label className="flex items-center text-foreground dark:text-zinc-300 cursor-pointer mb-2">
+
+                    <div className="flex flex-col gap-2">
+                        <label className="flex items-center text-foreground dark:text-zinc-300 cursor-pointer w-max">
                             <Checkbox 
                                 checked={slEnabled} 
-                                onCheckedChange={(c) => {
-                                    setSlEnabled(!!c);
-                                    if (!!c) setSlPrice(currentPrice.toFixed(priceDecimals));
-                                }} 
+                                onCheckedChange={(c) => setSlEnabled(!!c)} 
                                 className="mr-2 dark:border-zinc-600 dark:data-[state=checked]:bg-zinc-200 dark:data-[state=checked]:text-black" 
                             />
                             <span className="text-sm">Stop Loss</span>
                         </label>
-                        {slEnabled && <StepController value={slPrice} onChange={setSlPrice} step={priceStep} decimals={priceDecimals} />}
+                        {slEnabled && (
+                            <div className="flex gap-2">
+                                <CustomDropdown 
+                                    value={slMode} 
+                                    onChange={(v) => setSlMode(v as any)} 
+                                    options={[
+                                        { label: "Price", value: "price" },
+                                        { label: "ROE %", value: "percent" },
+                                        { label: "PnL $", value: "pnl" }
+                                    ]}
+                                />
+                                <div className="flex-1 flex items-center bg-white dark:bg-black border border-slate-200 dark:border-zinc-800 rounded-[4px] focus-within:border-blue-500 h-8 px-2 transition-colors">
+                                    <Input 
+                                        type="number" placeholder="0.00" value={slValue} onChange={(e) => setSlValue(e.target.value)} 
+                                        className="flex-1 bg-transparent border-none text-right text-slate-900 dark:text-white text-xs font-mono focus-visible:ring-0 p-0 [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
+                                    />
+                                    <span className="text-slate-500 dark:text-zinc-500 text-[10px] ml-1.5">{slMode === 'price' ? 'USDT' : slMode === 'percent' ? '%' : 'USDT'}</span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
 
-                {/* SÉCURISATION DU CONNECT BUTTON + CLAIM FAUCET */}
                 <div className="w-full pt-2 pb-3">
                     <ConnectButton.Custom>
                         {({ account, chain, openConnectModal, mounted }) => {
                             const ready = mounted;
                             const connected = ready && account && chain;
-                            
                             return (
-                                <div
-                                    className="flex space-x-3 w-full"
-                                    {...(!ready && {
-                                        'aria-hidden': true,
-                                        style: { opacity: 0, pointerEvents: 'none' },
-                                    })}
-                                >
+                                <div className="flex space-x-3 w-full" {...(!ready && { 'aria-hidden': true, style: { opacity: 0, pointerEvents: 'none' } })}>
                                     {!connected ? (
-                                        <Button 
-                                            onClick={openConnectModal} 
-                                            className="w-full font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
-                                        >
-                                            Connect Wallet
-                                        </Button>
+                                        <Button onClick={openConnectModal} className="w-full font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors">Connect Wallet</Button>
                                     ) : totalBalanceVal <= 0 ? (
-                                        <Button 
-                                            onClick={() => setIsFaucetOpen(true)} 
-                                            className="w-full font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
-                                        >
-                                            Claim Test Funds
-                                        </Button>
+                                        <Button onClick={() => setIsFaucetOpen(true)} className="w-full font-bold bg-blue-600 hover:bg-blue-700 text-white transition-colors">Claim Test Funds</Button>
                                     ) : (
                                         <>
-                                            <Button onClick={() => handleTrade(true)} disabled={loading} className={`flex-1 font-bold ${loading ? 'bg-zinc-800' : 'bg-trading-blue hover:opacity-90'} text-white`}>
-                                                {loading ? '...' : 'Buy'}
-                                            </Button>
-                                            <Button onClick={() => handleTrade(false)} disabled={loading} className={`flex-1 font-bold ${loading ? 'bg-zinc-800' : 'bg-trading-red hover:opacity-90'} text-white`}>
-                                                {loading ? '...' : 'Sell'}
-                                            </Button>
+                                            <Button onClick={() => handleTrade(true)} disabled={loading} className={`flex-1 font-bold ${loading ? 'bg-zinc-800' : 'bg-trading-blue hover:opacity-90'} text-white`}>{loading ? '...' : 'Buy'}</Button>
+                                            <Button onClick={() => handleTrade(false)} disabled={loading} className={`flex-1 font-bold ${loading ? 'bg-zinc-800' : 'bg-trading-red hover:opacity-90'} text-white`}>{loading ? '...' : 'Sell'}</Button>
                                         </>
                                     )}
                                 </div>
@@ -533,18 +473,9 @@ const OrderPanel = ({
 
                 <div className="relative z-10 flex flex-col items-end w-full h-full justify-between">
                     <div className="text-xs space-y-1.5 pt-1 w-full">
-                        <div className="flex justify-between items-center w-full">
-                            <span className="text-light-text dark:text-zinc-500">Total:</span>
-                            <span className="font-semibold text-foreground dark:text-white">${getDisplayValue(totalBalanceVal.toFixed(2))}</span>
-                        </div>
-                        <div className="flex justify-between items-center w-full">
-                            <span className="text-light-text dark:text-zinc-500">Available:</span>
-                            <span className="font-semibold text-foreground dark:text-white">${getDisplayValue(availableBalanceVal.toFixed(2))}</span>
-                        </div>
-                        <div className="flex justify-between items-center w-full">
-                            <span className="text-light-text dark:text-zinc-500">Locked:</span>
-                            <span className="font-semibold text-foreground dark:text-white">${getDisplayValue(lockedBalanceVal.toFixed(2))}</span>
-                        </div>
+                        <div className="flex justify-between items-center w-full"><span className="text-light-text dark:text-zinc-500">Total:</span><span className="font-semibold text-foreground dark:text-white">${getDisplayValue(totalBalanceVal.toFixed(2))}</span></div>
+                        <div className="flex justify-between items-center w-full"><span className="text-light-text dark:text-zinc-500">Available:</span><span className="font-semibold text-foreground dark:text-white">${getDisplayValue(availableBalanceVal.toFixed(2))}</span></div>
+                        <div className="flex justify-between items-center w-full"><span className="text-light-text dark:text-zinc-500">Locked:</span><span className="font-semibold text-foreground dark:text-white">${getDisplayValue(lockedBalanceVal.toFixed(2))}</span></div>
                     </div>
 
                     <div className="w-full flex justify-end items-center gap-2 mt-4">
@@ -556,11 +487,7 @@ const OrderPanel = ({
                 </div>
             </div>
 
-            {/* Faucet Modal ajoutée à la fin */}
-            <FaucetDialog 
-                open={isFaucetOpen} 
-                onOpenChange={setIsFaucetOpen} 
-            />
+            <FaucetDialog open={isFaucetOpen} onOpenChange={setIsFaucetOpen} />
         </div>
     );
 };
