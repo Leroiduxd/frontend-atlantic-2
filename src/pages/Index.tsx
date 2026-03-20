@@ -12,6 +12,7 @@ import Scan from "@/components/scan";
 const Index: React.FC = () => {
   const [currentView, setCurrentView] = useState<'trading' | 'vault' | 'scan' | 'leaderboard'>('trading');
   const [isFaucetOpen, setIsFaucetOpen] = useState(false);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
 
   return (
     <div className="antialiased bg-background dark:bg-black h-screen w-full transition-colors duration-300">
@@ -28,10 +29,19 @@ const Index: React.FC = () => {
             setIsFaucetOpen={setIsFaucetOpen} 
             currentView={currentView}
             onNavigate={setCurrentView}
+            isExpanded={isSidebarExpanded}
+            setIsExpanded={setIsSidebarExpanded}
         />
 
-        <main className="ml-[60px] w-[calc(100%-60px)] h-full bg-white dark:bg-black transition-colors duration-300">
-            {/* NAVIGATION DES VUES DANS LE MAIN */}
+        {/* Marge dynamique : 60px fermé, 180px ouvert */}
+        <main 
+            className="h-full bg-white dark:bg-black transition-all duration-300 ease-in-out"
+            style={{ 
+                marginLeft: isSidebarExpanded ? '180px' : '60px',
+                width: `calc(100% - ${isSidebarExpanded ? '180px' : '60px'})`,
+                '--sidebar-width': isSidebarExpanded ? '180px' : '60px' as any
+            }}
+        >
             {currentView === 'trading' && (
               <div className="h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth dark:bg-black">
                   <TradingSection />
@@ -58,7 +68,6 @@ const Index: React.FC = () => {
         </main>
       </div>
 
-      {/* Faucet Dialog (Partagé Mobile & Desktop) */}
       <FaucetDialog
           open={isFaucetOpen}
           onOpenChange={setIsFaucetOpen}

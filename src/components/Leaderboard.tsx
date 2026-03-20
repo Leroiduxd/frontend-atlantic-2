@@ -248,9 +248,9 @@ export default function Leaderboard() {
           )}
       </div>
 
-      <div className="fixed bottom-0 left-0 md:left-[60px] right-0 z-50">
-        <BottomBar onAssetSelect={(a) => setCurrentAssetId(a.id)} currentAssetId={currentAssetId} />
-      </div>
+      <div className="fixed bottom-0 right-0 z-50 w-full md:w-[calc(100%-var(--sidebar-width,60px))] transition-all duration-300">
+  <BottomBar onAssetSelect={(a) => setCurrentAssetId(a.id)} currentAssetId={currentAssetId} />
+</div>
     </div>
   );
 }

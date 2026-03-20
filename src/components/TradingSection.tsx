@@ -75,7 +75,7 @@ const TradingSection = () => {
                 
                 {/* 1️⃣ Barre pair / prix (Haut) */}
                 {/* MODIF: border-gray-200 (clair) -> dark:border-zinc-800 (sombre) */}
-                <div className="h-12 border-b border-gray-200 dark:border-zinc-800 flex-shrink-0">
+                <div className="h-auto border-b border-gray-200 dark:border-zinc-800 flex-shrink-0">
                     <ChartControls
                         selectedAsset={selectedAsset}
                         onAssetChange={setSelectedAsset} 

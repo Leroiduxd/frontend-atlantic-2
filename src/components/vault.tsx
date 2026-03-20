@@ -593,11 +593,12 @@ export default function VaultInterface() {
       <Notification show={notification.show} title={notification.title} body={notification.body} onClose={() => setNotification({ ...notification, show: false })} />
       
       {/* 👇 3. L'APPEL DE LA BOTTOM BAR EN BAS */}
-      <div className="fixed bottom-0 left-[60px] right-0 z-50">
-        <BottomBar 
+      <div className="fixed bottom-0 right-0 z-50 w-full md:w-[calc(100%-var(--sidebar-width))] transition-all duration-300 pointer-events-none">
+        <div className="pointer-events-auto w-full">        <BottomBar 
           onAssetSelect={handleAssetSelect} 
           currentAssetId={currentAssetId} 
         />
+      </div>
       </div>
     </div>
   );
