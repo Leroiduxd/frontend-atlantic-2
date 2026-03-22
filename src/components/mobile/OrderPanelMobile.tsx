@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,6 +14,7 @@ import { ChevronDown, Loader2, Fuel, CandlestickChart, Wallet } from 'lucide-rea
 import { Hash, formatUnits } from 'viem';
 import { useMarketStatus } from "@/hooks/useMarketStatus";
 import { MarketClosedBanner } from "../MarketClosedBanner";
+import { TRADING_ADDRESS, VAULT_ADDRESS, TRADING_ABI, VAULT_ABI } from "@/constants/addresses";
 
 const ASSET_LOT_SIZES: Record<number, number> = {
     0: 0.01, 1: 0.01, 2: 1, 3: 1000, 5: 1, 10: 1, 14: 100, 15: 1000, 16: 100, 90: 10, 5500: 0.01, 5501: 0.1,
@@ -28,26 +29,14 @@ const ASSET_MAX_LEVERAGE: Record<number, number> = {
     6113: 20, 6114: 20, 6115: 20
 };
 
-const TRADING_ADDRESS = '0x5B1A58e44f3fD24387A5fD7990A00422d2cB1aE4' as const;
-const VAULT_ADDRESS = '0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0' as const;
-
-const TRADING_ABI = [
-    { inputs: [{ internalType: "uint32", name: "assetId", type: "uint32" }, { internalType: "bool", name: "isLong", type: "bool" }, { internalType: "uint8", name: "leverage", type: "uint8" }, { internalType: "int32", name: "lotSize", type: "int32" }, { internalType: "uint48", name: "stopLoss", type: "uint48" }, { internalType: "uint48", name: "takeProfit", type: "uint48" }, { internalType: "bytes", name: "oracleProof", type: "bytes" }], name: "openMarketPosition", outputs: [], stateMutability: "nonpayable", type: "function" },
-    { inputs: [{ internalType: "uint32", name: "assetId", type: "uint32" }, { internalType: "bool", name: "isLong", type: "bool" }, { internalType: "bool", name: "isLimit", type: "bool" }, { internalType: "uint8", name: "leverage", type: "uint8" }, { internalType: "int32", name: "lotSize", type: "int32" }, { internalType: "uint48", name: "targetPrice", type: "uint48" }, { internalType: "uint48", name: "stopLoss", type: "uint48" }, { internalType: "uint48", name: "takeProfit", type: "uint48" }], name: "placeOrder", outputs: [], stateMutability: "nonpayable", type: "function" }
-] as const;
-
-const VAULT_ABI = [
-    { inputs: [{ internalType: "address", name: "trader", type: "address" }], name: "getTraderTotalBalance", outputs: [{ internalType: "uint256", name: "total6", type: "uint256" }], stateMutability: "view", type: "function" },
-    { inputs: [{ internalType: "address", name: "", type: "address" }], name: "freeBalance", outputs: [{ internalType: "uint256", name: "", type: "uint256" }], stateMutability: "view", type: "function" }
-] as const;
-
 type OrderType = "limit" | "market" | "stop";
 
 const getMarketProof = async (assetId: number): Promise<Hash> => {
     const url = `https://backend.brokex.trade/proof?pairs=${assetId}`;
     const response = await fetch(url);
     if (!response.ok) throw new Error(`Failed to fetch proof`);
-    return (await response.json()).proof as Hash;
+    const data = await response.json();
+    return data.proof as Hash;
 };
 
 // --- COMPOSANT INPUT CLEAN ---
@@ -123,8 +112,8 @@ export const OrderPanelMobile = ({
         query: { enabled: !!address, refetchInterval: 5000 }
     });
 
-    const totalBalanceVal = balanceData?.[0]?.status === 'success' ? Number(formatUnits(balanceData[0].result as bigint, 6)) : 0;
-    const availableBalanceVal = balanceData?.[1]?.status === 'success' ? Number(formatUnits(balanceData[1].result as bigint, 6)) : 0;
+    const totalBalanceVal = balanceData?.[0]?.result ? Number(formatUnits(balanceData[0].result as bigint, 6)) : 0;
+    const availableBalanceVal = balanceData?.[1]?.result ? Number(formatUnits(balanceData[1].result as bigint, 6)) : 0;
 
     const finalAssetIdForTx = useMemo(() => {
         const id = Number(selectedAsset.id);
@@ -266,7 +255,7 @@ export const OrderPanelMobile = ({
             refetchVault();
             refetchBalances();
         } catch (e: any) {
-            console.error(e);
+            console.error("Order error:", e);
             toast({ title: 'Order failed', description: e.message || "An error occurred", variant: "destructive" });
         } finally {
             setLocalLoading(false);
