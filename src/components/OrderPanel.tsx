@@ -17,25 +17,11 @@ import { Hash, formatUnits } from 'viem';
 import { useMarketStatus } from "@/hooks/useMarketStatus";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { FaucetDialog } from "@/components/FaucetDialog";
-
+import { TRADING_ADDRESS, VAULT_ADDRESS, TRADING_ABI, VAULT_ABI } from "@/constants/addresses";
 // --- MAPPING DES TAILLES DE LOTS ---
 const ASSET_LOT_SIZES: Record<number, number> = {
     0: 0.01, 1: 0.01, 2: 1, 3: 1000, 5: 1, 10: 1, 14: 100, 15: 1000, 16: 100, 90: 10, 5500: 0.01, 5501: 0.1,
 };
-
-// --- CONSTANTES TRADING ---
-const TRADING_ADDRESS = '0xC7eA1B52D20d0B4135ae5cc8E4225b3F12eA279B' as const;
-const TRADING_ABI = [
-    { inputs: [{ internalType: "uint32", name: "assetId", type: "uint32" }, { internalType: "bool", name: "isLong", type: "bool" }, { internalType: "uint8", name: "leverage", type: "uint8" }, { internalType: "int32", name: "lotSize", type: "int32" }, { internalType: "uint48", name: "stopLoss", type: "uint48" }, { internalType: "uint48", name: "takeProfit", type: "uint48" }, { internalType: "bytes", name: "oracleProof", type: "bytes" }], name: "openMarketPosition", outputs: [], stateMutability: "nonpayable", type: "function" },
-    { inputs: [{ internalType: "uint32", name: "assetId", type: "uint32" }, { internalType: "bool", name: "isLong", type: "bool" }, { internalType: "bool", name: "isLimit", type: "bool" }, { internalType: "uint8", name: "leverage", type: "uint8" }, { internalType: "int32", name: "lotSize", type: "int32" }, { internalType: "uint48", name: "targetPrice", type: "uint48" }, { internalType: "uint48", name: "stopLoss", type: "uint48" }, { internalType: "uint48", name: "takeProfit", type: "uint48" }], name: "placeOrder", outputs: [], stateMutability: "nonpayable", type: "function" }
-] as const;
-
-// --- CONSTANTES VAULT ---
-const VAULT_ADDRESS = '0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0' as const;
-const VAULT_ABI = [
-    { inputs: [{ internalType: "address", name: "trader", type: "address" }], name: "getTraderTotalBalance", outputs: [{ internalType: "uint256", name: "total6", type: "uint256" }], stateMutability: "view", type: "function" },
-    { inputs: [{ internalType: "address", name: "", type: "address" }], name: "freeBalance", outputs: [{ internalType: "uint256", name: "", type: "uint256" }], stateMutability: "view", type: "function" }
-] as const;
 
 // --- CUSTOM DROPDOWN (Évite le select natif du navigateur) ---
 const CustomDropdown = ({ value, onChange, options }: { value: string, onChange: (val: string) => void, options: {label: string, value: string}[] }) => {
@@ -346,8 +332,22 @@ const OrderPanel = ({
 
                     <div className="flex items-center gap-2">
                         <div className="w-20">
-                            <StepController value={leverage} onChange={setLeverage} step={1} min={1} max={100} decimals={0} isCompact={true} />
-                        </div>
+                        <StepController 
+                            value={leverage} 
+                            onChange={(val) => {
+                                const num = Number(val);
+                                if (num > 20) {
+                                    setLeverage(20);
+                                } else {
+                                    setLeverage(val);
+                                }
+                            }}
+                            step={1} 
+                            min={1} 
+                            max={20}
+                            decimals={0} 
+                            isCompact={true} 
+                        />                        </div>
                         <Button type="button" variant="ghost" size="icon" className={`h-7 w-7 rounded-md ${paymasterEnabled ? "bg-amber-400 text-white" : "border border-border dark:border-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-900"}`} onClick={onTogglePaymaster}>
                             <Fuel className="w-4 h-4" />
                         </Button>

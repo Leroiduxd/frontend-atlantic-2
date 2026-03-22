@@ -24,38 +24,10 @@ import { ChevronUp, ChevronDown } from 'lucide-react';
 
 // 👇 1. IMPORT DE LA BOTTOM BAR
 import { BottomBar } from "@/components/BottomBar"; 
+import { VAULT_ADDRESS, USDC_ADDRESS, VAULT_ABI, ERC20_ABI } from "@/constants/addresses";
 
 // --- 1. CONFIGURATION ---
 
-const VAULT_ADDRESS = "0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0";
-const USDC_ADDRESS = "0x16b90aeb3de140dde993da1d5734bca28574702b"; 
-
-const ERC20_ABI = [
-  { "inputs": [{ "internalType": "address", "name": "owner", "type": "address" }, { "internalType": "address", "name": "spender", "type": "address" }], "name": "allowance", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "address", "name": "spender", "type": "address" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }], "name": "approve", "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }], "stateMutability": "nonpayable", "type": "function" }
-] as const;
-
-const VAULT_ABI = [
-  { "inputs": [], "name": "currentEpoch", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "name": "lpTokenPrice", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "name": "epochEquitySnapshot18", "outputs": [{ "internalType": "int256", "name": "", "type": "int256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [], "name": "getLpTotalCapital6", "outputs": [{ "internalType": "uint256", "name": "total6", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [], "name": "lpFreeCapital", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [], "name": "lpLockedCapital", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "address", "name": "", "type": "address" }, { "internalType": "uint256", "name": "", "type": "uint256" }], "name": "pendingDepositOf", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "address", "name": "lp", "type": "address" }], "name": "computeLpShares", "outputs": [{ "internalType": "uint256", "name": "shares18", "type": "uint256" }, { "internalType": "uint256", "name": "pendingCurrentEpoch6", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "address", "name": "lp", "type": "address" }], "name": "getLpEpochsCount", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "address", "name": "lp", "type": "address" }, { "internalType": "uint256", "name": "index", "type": "uint256" }], "name": "getLpEpochAt", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "address", "name": "lp", "type": "address" }, { "internalType": "uint256", "name": "e", "type": "uint256" }], "name": "getLpSharesForEpoch", "outputs": [{ "internalType": "uint256", "name": "shares18", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "address", "name": "lp", "type": "address" }], "name": "getWithdrawEpochsCount", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "address", "name": "lp", "type": "address" }, { "internalType": "uint256", "name": "index", "type": "uint256" }], "name": "getWithdrawEpochAt", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }, { "internalType": "address", "name": "", "type": "address" }], "name": "userWithdraws", "outputs": [{ "internalType": "uint256", "name": "sharesRequested18", "type": "uint256" }, { "internalType": "uint256", "name": "usdWithdrawn6", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "name": "withdrawBuckets", "outputs": [{ "internalType": "uint256", "name": "totalSharesInitial18", "type": "uint256" }, { "internalType": "uint256", "name": "sharesRemaining18", "type": "uint256" }, { "internalType": "uint256", "name": "totalUsdAllocated6", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-  { "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }], "name": "requestLpDeposit", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-  { "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }], "name": "reduceLpDeposit", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-  { "inputs": [{ "internalType": "uint256[]", "name": "depositEpochs", "type": "uint256[]" }], "name": "requestLpWithdrawFromEpochs", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-  { "inputs": [{ "internalType": "uint256", "name": "requestEpoch", "type": "uint256" }], "name": "claimWithdraw", "outputs": [], "stateMutability": "nonpayable", "type": "function" }
-] as const;
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler);
 

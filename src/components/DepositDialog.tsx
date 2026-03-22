@@ -10,25 +10,16 @@ import { useToast } from '@/hooks/use-toast';
 import { BanknoteArrowDown, BanknoteArrowUp, ArrowRight, Wallet, Droplet, ShieldCheck } from 'lucide-react'; 
 import { useAccount, useWriteContract, useReadContracts, usePublicClient } from 'wagmi'; 
 import { parseUnits, formatUnits } from 'viem';
-// 🛑 NOUVEAU : Import du ConnectButton de RainbowKit
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 
-// --- CONSTANTES DU SMART CONTRACT ---
-const VAULT_ADDRESS = '0x3d0184662932E27748E4f9954D59ba1B17EE5Fe0';
-// TODO: Remplace par l'adresse de ton token ERC20 (ex: TUSD)
-const TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b'; 
-
-const VAULT_ABI = [
-    { "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }], "name": "traderDeposit", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-    { "inputs": [{ "internalType": "uint256", "name": "amount6", "type": "uint256" }], "name": "traderWithdraw", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-    { "inputs": [{ "internalType": "address", "name": "trader", "type": "address" }], "name": "getTraderTotalBalance", "outputs": [{ "internalType": "uint256", "name": "total6", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-    { "inputs": [{ "internalType": "address", "name": "", "type": "address" }], "name": "freeBalance", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" }
-] as const;
-
-const ERC20_ABI = [
-    { "inputs": [{ "internalType": "address", "name": "owner", "type": "address" }, { "internalType": "address", "name": "spender", "type": "address" }], "name": "allowance", "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }], "stateMutability": "view", "type": "function" },
-    { "inputs": [{ "internalType": "address", "name": "spender", "type": "address" }, { "internalType": "uint256", "name": "amount", "type": "uint256" }], "name": "approve", "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }], "stateMutability": "nonpayable", "type": "function" }
-] as const;
+// --- IMPORT DES CONSTANTES CENTRALISÉES ---
+// Assure-toi que le chemin correspond bien à ton alias ou utilise un chemin relatif comme '../constants/addresses'
+import { 
+    VAULT_ADDRESS, 
+    USDC_ADDRESS, 
+    VAULT_ABI, 
+    ERC20_ABI 
+} from '@/constants/addresses';
 
 type TransactionMode = 'deposit' | 'withdraw';
 type Step = 'faucet' | 'approve' | 'trade';
@@ -66,7 +57,7 @@ export const DepositDialog = ({ className, open: controlledOpen, onOpenChange: c
     contracts: [
         { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'getTraderTotalBalance', args: address ? [address] : undefined },
         { address: VAULT_ADDRESS, abi: VAULT_ABI, functionName: 'freeBalance', args: address ? [address] : undefined },
-        { address: TOKEN_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: address ? [address, VAULT_ADDRESS] : undefined }
+        { address: USDC_ADDRESS, abi: ERC20_ABI, functionName: 'allowance', args: address ? [address, VAULT_ADDRESS] : undefined } // Remplacé TOKEN_ADDRESS par USDC_ADDRESS
     ],
     query: { enabled: !!address, refetchInterval: 5000 }
   });
@@ -139,7 +130,7 @@ export const DepositDialog = ({ className, open: controlledOpen, onOpenChange: c
     try {
         const amount6 = parseUnits(targetAmount.toString(), 6);
         const hash = await writeContractAsync({
-            address: TOKEN_ADDRESS,
+            address: USDC_ADDRESS, // Remplacé TOKEN_ADDRESS par USDC_ADDRESS
             abi: ERC20_ABI,
             functionName: 'approve',
             args: [VAULT_ADDRESS, amount6],
@@ -233,7 +224,6 @@ export const DepositDialog = ({ className, open: controlledOpen, onOpenChange: c
                 <h3 className="text-xl font-semibold text-gray-800 dark:text-gray-100 mb-2">Wallet Connection Required</h3>
                 <p className="text-gray-600 dark:text-gray-400 mb-6">Please connect your wallet to deposit or withdraw funds.</p>
                 <div className="mx-auto w-fit">
-                   {/* 🛑 CORRECTION ICI : Remplacement par le ConnectButton de RainbowKit */}
                    <ConnectButton.Custom>
                        {({ openConnectModal }) => (
                            <Button 

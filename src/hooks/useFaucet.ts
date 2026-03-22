@@ -10,23 +10,15 @@ import {
 import { parseUnits, maxUint256 } from 'viem'; 
 import { useQueryClient } from '@tanstack/react-query';
 
-// --- ADRESSES ET ABIs ---
-const FAUCET_ADDRESS = '0x7cBC6673db27CE4B055C1004e92A2A04E446771b';
-const ERC20_TOKEN_ADDRESS = '0x16b90aeb3de140dde993da1d5734bca28574702b';
-const VAULT_ADDRESS = '0xFebf0c9421f70041FbD3410ECE47D080f03fC7EE';
-
-// ABI du Faucet (MISE À JOUR AVEC nextEligibleAt)
-const FAUCET_ABI = [
-  { "inputs": [], "name": "claim", "outputs": [], "stateMutability": "nonpayable", "type": "function" },
-  { "inputs": [ { "internalType": "address", "name": "", "type": "address" } ], "name": "hasClaimed", "outputs": [ { "internalType": "bool", "name": "", "type": "bool" } ], "stateMutability": "view", "type": "function" },
-  { "inputs": [ { "internalType": "address", "name": "user", "type": "address" } ], "name": "nextEligibleAt", "outputs": [ { "internalType": "uint256", "name": "", "type": "uint256" } ], "stateMutability": "view", "type": "function" },
-] as const;
-
-// ABI de l'ERC20
-const ERC20_ABI = [
-  { "inputs": [ { "internalType": "address", "name": "owner", "type": "address" }, { "internalType": "address", "name": "spender", "type": "address" } ], "name": "allowance", "outputs": [ { "internalType": "uint256", "name": "", "type": "uint256" } ], "stateMutability": "view", "type": "function" },
-  { "inputs": [ { "internalType": "address", "name": "spender", "type": "address" }, { "internalType": "uint256", "name": "amount", "type": "uint256" } ], "name": "approve", "outputs": [ { "internalType": "bool", "name": "", "type": "bool" } ], "stateMutability": "nonpayable", "type": "function" },
-] as const;
+// --- Importation des Constantes Centralisées ---
+// Note : Modifie le chemin '../constants/addresses' selon ton arborescence
+import {
+  FAUCET_ADDRESS,
+  USDC_ADDRESS,
+  VAULT_ADDRESS,
+  FAUCET_ABI,
+  ERC20_ABI
+} from '../constants/addresses';
 
 // Constante pour le délai de re-fetch et le seuil d'approbation
 const REFETCH_DELAY_MS = 5000;
@@ -63,7 +55,7 @@ export const useFaucet = () => {
   });
   const hasClaimed = hasClaimedData ?? false;
 
-  // 1b. nextEligibleAt (NOUVEAU)
+  // 1b. nextEligibleAt
   const { data: nextEligibleAtData } = useReadContract({
     address: FAUCET_ADDRESS,
     abi: FAUCET_ABI,
@@ -73,10 +65,10 @@ export const useFaucet = () => {
   });
   const nextEligibleAt = nextEligibleAtData ? Number(nextEligibleAtData) : null;
   
-  // 2. Token Balance
+  // 2. Token Balance (Utilisation de USDC_ADDRESS)
   const { data: balanceData } = useBalance({
     address: address,
-    token: ERC20_TOKEN_ADDRESS,
+    token: USDC_ADDRESS,
     query: {
         enabled: isConnected && !!address,
         staleTime: readQueryOptions.staleTime,
@@ -85,9 +77,9 @@ export const useFaucet = () => {
   });
   const tokenBalance = useMemo(() => parseFloat(balanceData?.formatted || '0'), [balanceData]);
 
-  // 3. Token Allowance
+  // 3. Token Allowance (Utilisation de USDC_ADDRESS)
   const { data: allowanceData } = useReadContract({
-    address: ERC20_TOKEN_ADDRESS,
+    address: USDC_ADDRESS,
     abi: ERC20_ABI,
     functionName: 'allowance',
     args: [address as `0x${string}`, VAULT_ADDRESS],
@@ -137,8 +129,9 @@ export const useFaucet = () => {
   // --- Logique d'Écriture : APPROVE (Infinie) ---
   const infiniteApprovalAmount = maxUint256; 
 
+  // Utilisation de USDC_ADDRESS
   const { data: approveSimulate } = useSimulateContract({
-    address: ERC20_TOKEN_ADDRESS,
+    address: USDC_ADDRESS,
     abi: ERC20_ABI,
     functionName: 'approve',
     args: [VAULT_ADDRESS, infiniteApprovalAmount],
@@ -174,7 +167,7 @@ export const useFaucet = () => {
 
   return {
     hasClaimed,
-    nextEligibleAt, // Expose la nouvelle valeur pour le chrono
+    nextEligibleAt,
     isLoadingClaimStatus,
     isClaiming,
     claimTestTokens,

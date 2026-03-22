@@ -10,6 +10,7 @@ import { Hash } from 'viem';
 import { usePaymaster } from "@/hooks/useBrokexPaymaster"; 
 import { ChevronDown, ChevronUp, Plus, Minus, Check, X, Pencil } from 'lucide-react'; 
 import { useAccount, useWriteContract } from 'wagmi';
+import { TRADING_ADDRESS, TRADING_ABI } from "@/constants/addresses";
 
 // 🛑 NOUVEAU: On importe directement tes fonctions de calcul du marché !
 import { getMarketKindFromId, getMarketStatusUTC } from "@/hooks/useopen";
@@ -46,51 +47,6 @@ const ASSET_LOT_SIZES: Record<number, number> = {
     5501: 0.1,  // xag_usd
 };
 
-// --- CONFIGURATION SMART CONTRACT ---
-const PAYMASTER_ADDRESS = '0xC7eA1B52D20d0B4135ae5cc8E4225b3F12eA279B';
-
-const PAYMASTER_ABI = [
-  {
-    "inputs": [{ "internalType": "uint256", "name": "tradeId", "type": "uint256" }],
-    "name": "cancelOrder",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256", "name": "tradeId", "type": "uint256" },
-      { "internalType": "int32", "name": "lotsToClose", "type": "int32" },
-      { "internalType": "bytes", "name": "oracleProof", "type": "bytes" }
-    ],
-    "name": "closePositionMarket",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256", "name": "tradeId", "type": "uint256" },
-      { "internalType": "uint64", "name": "amount6", "type": "uint64" }
-    ],
-    "name": "addMargin",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256", "name": "tradeId", "type": "uint256" },
-      { "internalType": "uint48", "name": "newSL", "type": "uint48" },
-      { "internalType": "uint48", "name": "newTP", "type": "uint48" }
-    ],
-    "name": "updateSLTP",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
-] as const;
-
 // --- UTILS ---
 const getMarketProof = async (assetId: number): Promise<Hash> => {
     const url = `https://backend.brokex.trade/proof?pairs=${assetId}`;
@@ -101,7 +57,6 @@ const getMarketProof = async (assetId: number): Promise<Hash> => {
 };
 
 // 🛑 NOUVEAU: Fonction utilitaire pour calculer le Spread de sortie dynamique
-// 🛑 MODIFIÉ: Fonction utilitaire pour calculer le Spread de sortie dynamique
 // Elle reproduit volontairement la logique (le "bug") du Smart Contract pour être 100% synchrone.
 const calculateExitSpreadDecimal = (assetId: number, isLongTrade: boolean, lotSize: number, exposuresMap: any, baseSpreadsMap: any): number => {
     try {
@@ -706,8 +661,8 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
         } else {
            const proof = await getMarketProof(assetId); 
            await writeContractAsync({
-               address: PAYMASTER_ADDRESS,
-               abi: PAYMASTER_ABI,
+               address: TRADING_ADDRESS,
+               abi: TRADING_ABI,
                functionName: 'closePositionMarket',
                args: [BigInt(id), lotsToClose, proof]
            });
@@ -728,8 +683,8 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
               toast({ title: "Add Margin Sent", description: "Processing via Paymaster..." });
           } else {
               await writeContractAsync({
-                  address: PAYMASTER_ADDRESS,
-                  abi: PAYMASTER_ABI,
+                  address: TRADING_ADDRESS,
+                  abi: TRADING_ABI,
                   functionName: 'addMargin',
                   args: [BigInt(id), BigInt(amount6Num)]
               });
@@ -749,8 +704,8 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
             toast({ title: "Update Request Sent", description: "Processing via Paymaster..." });
         } else {
             await writeContractAsync({
-                address: PAYMASTER_ADDRESS,
-                abi: PAYMASTER_ABI,
+                address: TRADING_ADDRESS,
+                abi: TRADING_ABI,
                 functionName: 'updateSLTP',
                 args: [BigInt(id), newSL, newTP]
             });
@@ -770,8 +725,8 @@ const PositionsSection: React.FC<PositionsSectionProps> = ({
             toast({ title: "Cancel Request Sent", description: "Processing via Paymaster..." });
         } else {
             await writeContractAsync({
-                address: PAYMASTER_ADDRESS,
-                abi: PAYMASTER_ABI,
+                address: TRADING_ADDRESS,
+                abi: TRADING_ABI,
                 functionName: 'cancelOrder',
                 args: [BigInt(id)]
             });
