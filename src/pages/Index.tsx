@@ -8,9 +8,12 @@ import { FaucetDialog } from "@/components/FaucetDialog";
 import MobileLayout from "@/components/mobile/MobileLayout"; 
 import Leaderboard from "@/components/Leaderboard";
 import Scan from "@/components/scan"; 
+// 1️⃣ NOUVEL IMPORT ICI
+import PortfolioView from "@/components/PortfolioView"; 
 
 const Index: React.FC = () => {
-  const [currentView, setCurrentView] = useState<'trading' | 'vault' | 'scan' | 'leaderboard'>('trading');
+  // 2️⃣ AJOUT DE 'portfolio' DANS LE STATE
+  const [currentView, setCurrentView] = useState<'trading' | 'vault' | 'scan' | 'leaderboard' | 'portfolio'>('trading');
   const [isFaucetOpen, setIsFaucetOpen] = useState(false);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(false);
 
@@ -63,6 +66,13 @@ const Index: React.FC = () => {
             {currentView === 'leaderboard' && (
               <div className="h-full overflow-y-auto bg-slate-50 dark:bg-black transition-colors duration-300">
                   <Leaderboard />
+              </div>
+            )}
+
+            {/* 3️⃣ CONDITION D'AFFICHAGE DE LA PAGE PORTFOLIO */}
+            {currentView === 'portfolio' && (
+              <div className="h-full overflow-y-auto bg-slate-50 dark:bg-black transition-colors duration-300">
+                  <PortfolioView />
               </div>
             )}
         </main>

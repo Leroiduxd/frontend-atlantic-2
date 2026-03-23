@@ -1,14 +1,14 @@
 "use client";
 
-import { TrendingUp, Wallet, Droplet, Sun, Moon, Vault, Compass, Trophy, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { TrendingUp, Wallet, Droplet, Sun, Moon, Vault, Compass, Trophy, PanelLeftClose, PanelLeftOpen, Briefcase } from "lucide-react";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import React, { useEffect, useState } from 'react';
 import { useTheme } from "next-themes"; 
 
 interface SidebarProps {
   setIsFaucetOpen: (open: boolean) => void;
-  currentView: 'trading' | 'vault' | 'scan' | 'leaderboard';       
-  onNavigate: (view: 'trading' | 'vault' | 'scan' | 'leaderboard') => void;
+  currentView: 'trading' | 'vault' | 'scan' | 'leaderboard' | 'portfolio';       
+  onNavigate: (view: 'trading' | 'vault' | 'scan' | 'leaderboard' | 'portfolio') => void;
   isExpanded: boolean;
   setIsExpanded: (expanded: boolean) => void;
 }
@@ -42,7 +42,7 @@ const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen, currentView, onNavig
     return () => clearTimeout(timer);
   }, [isExpanded]);
 
-  const handleNavigate = (view: 'trading' | 'vault' | 'scan' | 'leaderboard') => {
+  const handleNavigate = (view: 'trading' | 'vault' | 'scan' | 'leaderboard' | 'portfolio') => {
     if (view !== currentView) {
       onNavigate(view);
       setIsExpanded(false);
@@ -109,8 +109,8 @@ const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen, currentView, onNavig
 
         <button onClick={() => handleNavigate('vault')} className={getIconStyle('vault')}>
           <Vault className="w-[22px] h-[22px] flex-shrink-0" />
-          {showText && <span className="font-semibold text-sm animate-in fade-in duration-300">Portfolio</span>}
-          <Tooltip label="Portfolio" isExpanded={isExpanded} />
+          {showText && <span className="font-semibold text-sm animate-in fade-in duration-300">Vault</span>}
+          <Tooltip label="Vault" isExpanded={isExpanded} />
         </button>
 
         <button onClick={() => handleNavigate('scan')} className={getIconStyle('scan')}>
@@ -123,6 +123,13 @@ const Sidebar: React.FC<SidebarProps> = ({ setIsFaucetOpen, currentView, onNavig
           <Trophy className="w-[22px] h-[22px] flex-shrink-0" />
           {showText && <span className="font-semibold text-sm animate-in fade-in duration-300">Leaderboard</span>}
           <Tooltip label="Leaderboard" isExpanded={isExpanded} />
+        </button>
+
+        {/* --- NOUVEAU BOUTON PORTFOLIO --- */}
+        <button onClick={() => handleNavigate('portfolio')} className={getIconStyle('portfolio')}>
+          <Briefcase className="w-[22px] h-[22px] flex-shrink-0" />
+          {showText && <span className="font-semibold text-sm animate-in fade-in duration-300">Portfolio</span>}
+          <Tooltip label="Portfolio" isExpanded={isExpanded} />
         </button>
         
         <button onClick={() => { setIsFaucetOpen(true); setIsExpanded(false); }} className={navIconStyle}>
